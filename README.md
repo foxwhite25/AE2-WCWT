@@ -1,5 +1,370 @@
 # AE2 WCWT
 
+AE2 WCWT (Wireless Comprehensive Work Terminal) is an integrated wireless terminal mod for **Applied Energistics 2 / NeoForge 1.21.1**.  
+Instead of only providing a wireless crafting terminal, it aims to merge multiple commonly used AE2 addon workflows into a single terminal item and a single UI entry point.
+
+Current version: `v1.1.0`
+
+## Overview
+
+- 18-column main ME storage view
+- Built-in pattern cache for temporary pattern storage and batch operations
+- Supports crafting, processing, smithing table, and stonecutting patterns
+- Extended UI system with multiple side panels
+- Per-panel hotkeys
+- Optional-mod integrations that appear dynamically when the related mod is installed
+
+## Requirements
+
+### Required
+
+- NeoForge `1.21.1`
+- Applied Energistics 2 `19.2.17`
+
+### Optional integrations
+
+- AE2 Wireless Terminal Library
+- AdvancedAE
+- ExtendedAE
+- ExtendedAE Plus
+- Curios
+- Cosmetic Armor Reworked
+- EMI
+- JEI
+- NeoECOAEExtension
+- AE2 Crystal Science
+- AE2 Lightning Tech
+- Extreme Sound Muffler
+
+Notes:
+
+- Some buttons and panels are hidden automatically if their related optional mod is not installed.
+- The current source tree still contains some local `compileOnly files(...)` development paths in `build.gradle`. Those are for the original local environment and may need adjustment in another environment.
+
+## Main Terminal UI
+
+The WCWT main screen is essentially an expanded wireless work terminal and is divided into several functional areas.
+
+### 1. Main repository view
+
+- Displays items, fluids, and other ME key types
+- Top row includes small filter buttons for:
+  - Items
+  - Fluids
+  - Other types
+  - Mute button when `Extreme Sound Muffler` is installed
+
+### 2. Top-right action buttons
+
+These buttons depend on installed mods and terminal state:
+
+- Wireless terminal settings
+  - Adjust `Pick Block`, `Craft If Missing`, `Restock`, `Magnet`, `Pickup To Me`
+- Magnet card menu
+  - Uses AE2WTLib magnet-related functionality
+- Trash menu
+  - Opens the built-in trash UI
+- Mute
+  - Only shown when `Extreme Sound Muffler` is installed
+
+### 3. Manual crafting area
+
+- Standard 3x3 crafting grid
+- Includes the crafting-grid lock button
+
+Behavior:
+
+- Unlocked: JEI/EMI pattern filling prefers the pattern encoding area
+- Locked: JEI/EMI workbench recipes prefer the manual 3x3 crafting area
+
+### 4. Pattern encoding area
+
+Supports four pattern modes:
+
+- Crafting pattern
+- Processing pattern
+- Smithing table pattern
+- Stonecutting pattern
+
+Common controls:
+
+- Encode pattern
+- Clear
+- Merge inputs toggle
+- Substitution / fluid substitution toggles
+- Processing output switch
+
+### 5. Pattern multiplier area
+
+Located next to the encoding area and used to scale pattern contents quickly.
+
+Default buttons:
+
+- `x2`
+- `x3`
+- `x5`
+- `=1`
+- `/2`
+- `/3`
+- `/5`
+- one extra control button used by the multiplier block
+
+### 6. Pattern cache area
+
+- Temporary storage for encoded or editable patterns
+- Used by many extended features as their input source
+
+Typical use cases:
+
+- Select a pattern for advanced coding
+- Batch upload patterns to providers
+- Copy / replace operations
+- Resonating / overload pattern conversion input
+
+## Pattern Management Area
+
+This area mainly aligns with the experience of `ExtendedAE` and `ExtendedAE Plus`.
+
+### Core features
+
+- Pattern provider search
+- Search mapping management
+- Pattern provider list view
+- Display mode switching
+- Search mode switching
+- Toggle provider slot display
+- Toggle automatic pattern upload
+- Open provider-related UI directly
+- Highlight and focus a provider
+
+### Buttons and controls
+
+- Add mapping
+  - Map a search keyword to a provider name
+- Reload mapping
+  - Reload saved mappings
+- Delete mapping
+  - Delete matching mappings
+- Cancel
+  - Clear input fields
+- Display mode
+  - All / Visible / Not Full
+- Show slots
+  - Toggle whether provider internal slots are rendered
+- Upload-enabled toggle
+  - Controls whether encoded patterns should try automatic upload first
+  - This state is now stored on the terminal item itself
+- Search mode
+  - Search by input / output / input+output
+
+### Provider-row buttons
+
+Each provider row can include:
+
+- Upload button
+  - Save cached patterns to that provider in order
+- Open UI button
+  - Try to open the target machine UI associated with that provider
+- Highlight button
+  - Highlight the provider location in the world
+
+### Shift quick actions
+
+These behaviors are controlled by server config:
+
+- `Shift + click pattern in pattern management`
+  - Quick extract into inventory
+- Quick insert behavior for the first provider when using the terminal-side shortcut logic
+
+## Extended UI Buttons and Panels
+
+The right side of the main terminal contains a column of extended UI buttons.  
+Some are always available, while others only appear when the related mod is installed.
+
+### 1. Advanced Coding
+
+Always available.
+
+Mainly integrates:
+
+- Advanced pattern editing workflow inspired by `AdvancedAE`
+- WCWT pattern-cache selection logic
+- AE2 cell workbench related functions
+
+Includes:
+
+- Pattern input direction editor
+- Pattern copy
+- Batch replacement
+- Cell editor
+  - Partition storage
+  - Clear config
+  - Copy mode switch
+  - Cell upgrade browsing
+
+### 2. Cosmetic Armor
+
+Only shown when `Cosmetic Armor Reworked` is installed.
+
+Features:
+
+- Cosmetic helmet, chestplate, leggings, and boots slots
+
+### 3. Curios
+
+Only shown when `Curios` is installed.
+
+Features:
+
+- Browse real Curios slots
+- Scrollable slot view
+- Curio rendering toggle support
+
+### 4. Card Box
+
+Shown when the related toolbox/card-box capability is available.
+
+Purpose:
+
+- Stores AE / addon upgrade cards
+- Renamed from the older “toolbox” wording to avoid confusion with the toolkit panel
+
+### 5. Toolkit
+
+Always available.
+
+Purpose:
+
+- Stores tools rather than upgrade cards
+- Accepts non-stackable tool-like items by default
+- Has its own scrollable side panel
+- Supports a direct hotkey
+- AE network tool support is specially handled even when the tool is placed in the toolkit
+
+The first 11 dedicated slots are primarily designed for:
+
+- Sword
+- Pickaxe
+- Axe
+- Shovel
+- Hoe
+- Wrench
+- AE quartz cutting knife
+- AE network tool
+- AE memory card
+- Mekanism configuration card
+- Mekanism configurator
+
+Server config:
+
+- Toolkit slot count
+- Current range: `11 ~ 640`
+
+### 6. Resonating Overload Encoder
+
+Always shown, but its complete functionality depends on optional mods.
+
+#### Overload pattern editor
+
+Main integration:
+
+- `AE2 Lightning Tech`
+
+Features:
+
+- Inspect input/output entries of the selected cached pattern
+- Toggle match mode
+- Convert the selected pattern into an overload pattern
+
+#### Resonating pattern converter
+
+Main integration:
+
+- `AE2 Crystal Science`
+
+Features:
+
+- Batch scan processing patterns from the pattern cache
+- Convert them into resonating patterns
+- Store results in the resonating pattern cache
+- Stop when the resonating cache becomes full
+
+## Hotkeys
+
+Each extended UI has its own keybinding entry:
+
+- Open Advanced Coding
+- Open Cosmetic Armor
+- Open Curios
+- Open Card Box
+- Open Toolkit
+- Open Resonating Overload Encoder
+
+Special note:
+
+- The Toolkit hotkey can open the toolkit even when the main terminal is not already open
+- The other extended UI hotkeys are primarily intended for use while the terminal screen is already open
+
+## Mod Integration Notes
+
+### AE2 Wireless Terminal Library
+
+Used for:
+
+- Wireless terminal baseline behavior
+- Wireless terminal settings
+- Magnet card menu
+- Wireless access point interactions
+
+### AdvancedAE
+
+Used for:
+
+- Advanced pattern direction editing
+- Portable cell workbench style behavior
+
+### ExtendedAE / ExtendedAE Plus
+
+Used for:
+
+- Pattern provider management
+- Pattern upload
+- Provider highlighting
+- Opening provider target UIs
+- Search mapping logic
+
+### NeoECOAEExtension
+
+When an ECO crafting subsystem exists in the network, WCWT can try uploading certain patterns there first.
+
+### EMI / JEI
+
+WCWT includes encoding-area recipe transfer compatibility for both.
+
+## Build
+
+```bash
+./gradlew build
+```
+
+Windows:
+
+```powershell
+.\gradlew.bat build
+```
+
+## License
+
+This project is licensed under the MIT License.
+
+## Credits
+
+- UI design, JSON layout, and texture assets: `xiaoleng5261`
+
+---
+
+# AE2 WCWT 中文说明
+
 AE2 WCWT（Wireless Comprehensive Work Terminal）是一个面向 **Applied Energistics 2 / NeoForge 1.21.1** 的综合型无线终端模组。  
 它的目标不是只做“无线合成终端”，而是把多个 AE2 生态附属模组中常用、常切换、常要开很多界面的功能，集中整合到一把无线终端里。
 
@@ -350,37 +715,6 @@ WCWT 主界面可以理解为“增强版无线工作终端”，主要分为以
 ### EMI / JEI
 
 WCWT 对两者都做了编码区填充兼容，支持将支持的配方材料拉入编码区。
-
-## 建议上传到 GitHub 的文件
-
-建议保留：
-
-- `src/`
-- `gradle/`
-- `gradlew`
-- `gradlew.bat`
-- `build.gradle`
-- `settings.gradle`
-- `gradle.properties`
-- `README.md`
-- `LICENSE`
-- `.gitignore`
-
-建议不要上传：
-
-- `build/`
-- `run/`
-- `.gradle/`
-- `.gradle-user-home/`
-- `bin/`
-- `.idea/`
-- `.vscode/`
-- `.settings/`
-- `.classpath`
-- `.project`
-- `*.iml`
-- `*.ipr`
-- `*.iws`
 
 ## 构建
 
