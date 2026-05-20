@@ -14,6 +14,7 @@ import appeng.menu.me.crafting.CraftAmountMenu;
 import appeng.util.ConfigInventory;
 import appeng.util.prioritylist.IPartitionList;
 import com.google.common.collect.Maps;
+import com.lhy.wcwt.WcwtMod;
 import com.lhy.wcwt.item.WirelessComprehensiveWorkTerminalItem;
 import com.lhy.wcwt.network.WcwtPickBlockPacket;
 import com.lhy.wcwt.network.WcwtRestockAmountsPacket;
@@ -32,6 +33,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.network.PacketDistributor;
+import org.jetbrains.annotations.Nullable;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -45,33 +47,50 @@ public final class WcwtWirelessFeatures {
     private static final ResourceLocation MAGNET_CARD_ID =
             ResourceLocation.fromNamespaceAndPath("ae2wtlib", "magnet_card");
     private static final double DEFAULT_MAGNET_RANGE = 16.0;
+    private static final boolean DEBUG_MAGNET = Boolean.getBoolean("wcwt.debug.magnet");
     private static final WeakHashMap<ServerPlayer, Integer> RESTOCK_SYNC_TICKS = new WeakHashMap<>();
+    private static final WeakHashMap<ServerPlayer, Integer> MAGNET_DEBUG_TICKS = new WeakHashMap<>();
 
     private WcwtWirelessFeatures() {
     }
 
     public static void tickMagnet(ServerPlayer player, ItemStack terminal) {
         syncRestockAmounts(player, terminal);
-        if (player.isShiftKeyDown() || !hasMagnetCard(terminal) || !getMagnetSetting(terminal, "magnet")) {
+        boolean sneaking = player.isShiftKeyDown();
+        boolean hasMagnetCard = hasMagnetCard(terminal);
+        boolean magnetEnabled = getMagnetSetting(terminal, "magnet");
+        boolean pickupToMeEnabled = getMagnetSetting(terminal, "pickupToME");
+        IGrid grid = getGrid(player, terminal);
+        debugMagnetTick(player, terminal, sneaking, hasMagnetCard, magnetEnabled, pickupToMeEnabled, grid);
+        if (sneaking || !hasMagnetCard || !magnetEnabled) {
             return;
         }
-        if (getGrid(player, terminal) == null) {
+        if (grid == null) {
             return;
         }
 
         IPartitionList filter = createFilter(terminal, AE2wtlibComponents.PICKUP_CONFIG, player);
         IncludeExclude mode = terminal.getOrDefault(AE2wtlibComponents.PICKUP_MODE, IncludeExclude.BLACKLIST);
         if (filter.isEmpty() && mode == IncludeExclude.WHITELIST) {
+            debugMagnet(player, "magnet pull skipped: pickup filter is empty whitelist, terminal={}",
+                    describeStack(terminal));
             return;
         }
 
         List<ItemEntity> nearby = player.level().getEntitiesOfClass(ItemEntity.class,
                 player.getBoundingBox().inflate(getMagnetRange()), EntitySelector.ENTITY_STILL_ALIVE);
+        debugMagnet(player, "magnet pull scan: nearby={}, pickupMode={}, range={}",
+                nearby.size(), mode, getMagnetRange());
         for (ItemEntity itemEntity : nearby) {
-            AEItemKey key = AEItemKey.of(itemEntity.getItem());
+            ItemStack entityStack = itemEntity.getItem();
+            AEItemKey key = AEItemKey.of(entityStack);
+            boolean matchesFilter = key != null && filter.matchesFilter(key, mode);
+            boolean prevented = itemEntity.getPersistentData().contains("PreventRemoteMovement");
+            debugMagnet(player, "magnet pull candidate: stack={}, key={}, matchesFilter={}, prevented={}",
+                    describeStack(entityStack), key, matchesFilter, prevented);
             if (key != null
-                    && filter.matchesFilter(key, mode)
-                    && !itemEntity.getPersistentData().contains("PreventRemoteMovement")) {
+                    && matchesFilter
+                    && !prevented) {
                 itemEntity.playerTouch(player);
             }
         }
@@ -152,25 +171,33 @@ public final class WcwtWirelessFeatures {
 
         ItemStack stack = entity.getItem();
         if (stack.isEmpty()) {
+            debugMagnet(serverPlayer, "pickup-to-me skipped: entity stack empty");
             return false;
         }
 
         ItemStack terminal = findTerminalStack(serverPlayer, term -> canInsertPickup(term, stack, serverPlayer));
         if (terminal.isEmpty()) {
+            debugMagnet(serverPlayer, "pickup-to-me skipped: no eligible terminal for stack={}", describeStack(stack));
             return false;
         }
 
         IGrid grid = getGrid(serverPlayer, terminal);
         if (grid == null || grid.getStorageService() == null) {
+            debugMagnet(serverPlayer, "pickup-to-me skipped: grid/storage missing, stack={}, terminal={}",
+                    describeStack(stack), describeStack(terminal));
             return false;
         }
 
         long inserted = grid.getStorageService().getInventory()
                 .insert(AEItemKey.of(stack), stack.getCount(), Actionable.MODULATE, new PlayerSource(serverPlayer));
         if (inserted <= 0) {
+            debugMagnet(serverPlayer, "pickup-to-me insert failed: stack={}, terminal={}",
+                    describeStack(stack), describeStack(terminal));
             return false;
         }
 
+        debugMagnet(serverPlayer, "pickup-to-me inserted: inserted={}, beforeStack={}, terminal={}",
+                inserted, describeStack(stack), describeStack(terminal));
         serverPlayer.awardStat(Stats.ITEM_PICKED_UP.get(stack.getItem()), (int) inserted);
         serverPlayer.onItemPickup(entity);
         stack.setCount((int) (stack.getCount() - inserted));
@@ -247,20 +274,32 @@ public final class WcwtWirelessFeatures {
 
     private static boolean canInsertPickup(ItemStack terminal, ItemStack stack, ServerPlayer player) {
         if (terminal.getOrDefault(AE2wtlibComponents.RESTOCK, false) && isRestocking(stack, player)) {
+            debugMagnet(player, "pickup-to-me eligible by restock: stack={}, terminal={}",
+                    describeStack(stack), describeStack(terminal));
             return true;
         }
-        if (player.isShiftKeyDown() || !hasMagnetCard(terminal) || !getMagnetSetting(terminal, "pickupToME")) {
+        boolean sneaking = player.isShiftKeyDown();
+        boolean hasMagnetCard = hasMagnetCard(terminal);
+        boolean pickupToMeEnabled = getMagnetSetting(terminal, "pickupToME");
+        if (sneaking || !hasMagnetCard || !pickupToMeEnabled) {
+            debugMagnet(player, "pickup-to-me ineligible: stack={}, sneaking={}, hasMagnetCard={}, pickupToME={}, terminal={}",
+                    describeStack(stack), sneaking, hasMagnetCard, pickupToMeEnabled, describeStack(terminal));
             return false;
         }
 
         IPartitionList filter = createFilter(terminal, AE2wtlibComponents.INSERT_CONFIG, player);
         IncludeExclude mode = terminal.getOrDefault(AE2wtlibComponents.INSERT_MODE, IncludeExclude.BLACKLIST);
         if (filter.isEmpty() && mode == IncludeExclude.WHITELIST) {
+            debugMagnet(player, "pickup-to-me ineligible: insert filter is empty whitelist, stack={}, terminal={}",
+                    describeStack(stack), describeStack(terminal));
             return false;
         }
 
         AEItemKey key = AEItemKey.of(stack);
-        return key != null && filter.matchesFilter(key, mode);
+        boolean matches = key != null && filter.matchesFilter(key, mode);
+        debugMagnet(player, "pickup-to-me filter check: stack={}, key={}, insertMode={}, matches={}, terminal={}",
+                describeStack(stack), key, mode, matches, describeStack(terminal));
+        return matches;
     }
 
     private static boolean isRestocking(ItemStack stack, Player player) {
@@ -290,6 +329,7 @@ public final class WcwtWirelessFeatures {
             for (int i = 0; i < cap.getSlots(); i++) {
                 ItemStack stack = cap.getStackInSlot(i);
                 if (stack.getItem() instanceof WirelessComprehensiveWorkTerminalItem && predicate.test(stack)) {
+                    debugMagnet(player, "terminal target found in curios: slot={}, stack={}", i, describeStack(stack));
                     return new TerminalTarget(stack, MenuLocators.forCurioSlot(i));
                 }
             }
@@ -299,9 +339,11 @@ public final class WcwtWirelessFeatures {
         for (int i = 0; i < inventory.getContainerSize(); i++) {
             ItemStack stack = inventory.getItem(i);
             if (stack.getItem() instanceof WirelessComprehensiveWorkTerminalItem && predicate.test(stack)) {
+                debugMagnet(player, "terminal target found in inventory: slot={}, stack={}", i, describeStack(stack));
                 return new TerminalTarget(stack, MenuLocators.forInventorySlot(i));
             }
         }
+        debugMagnet(player, "terminal target not found");
         return null;
     }
 
@@ -363,8 +405,54 @@ public final class WcwtWirelessFeatures {
             Method method = modeClass.getMethod(methodName);
             return (boolean) method.invoke(mode);
         } catch (ReflectiveOperationException e) {
+            if (DEBUG_MAGNET) {
+                WcwtMod.LOGGER.info("WCWT magnet debug: failed reading magnet setting method={}, error={}",
+                        methodName, e.toString());
+            }
             return false;
         }
+    }
+
+    private static void debugMagnetTick(ServerPlayer player, ItemStack terminal, boolean sneaking,
+                                        boolean hasMagnetCard, boolean magnetEnabled,
+                                        boolean pickupToMeEnabled, @Nullable IGrid grid) {
+        if (!DEBUG_MAGNET) {
+            return;
+        }
+        int tick = player.getServer() == null ? 0 : player.getServer().getTickCount();
+        Integer lastTick = MAGNET_DEBUG_TICKS.get(player);
+        if (lastTick != null && tick - lastTick < 20) {
+            return;
+        }
+        MAGNET_DEBUG_TICKS.put(player, tick);
+        WcwtMod.LOGGER.info(
+                "WCWT magnet debug: tick player={}, terminal={}, sneaking={}, hasMagnetCard={}, magnet={}, pickupToME={}, grid={}, storage={}, range={}",
+                player.getScoreboardName(),
+                describeStack(terminal),
+                sneaking,
+                hasMagnetCard,
+                magnetEnabled,
+                pickupToMeEnabled,
+                grid != null,
+                grid != null && grid.getStorageService() != null,
+                getMagnetRange());
+    }
+
+    private static void debugMagnet(ServerPlayer player, String message, Object... args) {
+        if (!DEBUG_MAGNET) {
+            return;
+        }
+        Object[] withPlayer = new Object[args.length + 1];
+        withPlayer[0] = player.getScoreboardName();
+        System.arraycopy(args, 0, withPlayer, 1, args.length);
+        WcwtMod.LOGGER.info("WCWT magnet debug: player={}, " + message, withPlayer);
+    }
+
+    private static String describeStack(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return "<empty>";
+        }
+        return stack.getCount() + "x" + BuiltInRegistries.ITEM.getKey(stack.getItem());
     }
 
     private record TerminalTarget(ItemStack stack, ItemMenuHostLocator locator) {

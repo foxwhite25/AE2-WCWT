@@ -3,7 +3,9 @@ package com.lhy.wcwt.client;
 import appeng.client.gui.Icon;
 import appeng.client.gui.me.common.MEStorageScreen;
 import appeng.client.gui.me.common.RepoSlot;
+import appeng.client.gui.me.common.StackSizeRenderer;
 import appeng.client.gui.me.items.CraftingTermScreen;
+import appeng.api.stacks.GenericStack;
 import appeng.menu.slot.AppEngSlot;
 import appeng.client.gui.widgets.ActionButton;
 import appeng.client.gui.widgets.AETextField;
@@ -47,11 +49,13 @@ import com.lhy.wcwt.network.ToolkitNetworkToolDepositPacket;
 import com.lhy.wcwt.network.CycleProcessingOutputPacket;
 import com.lhy.wcwt.network.WirelessSettingsPacket;
 import com.lhy.wcwt.menu.WcwtSlotSemantics;
+import com.lhy.wcwt.menu.WirelessComprehensiveWorkTerminalMenu.WcwtActivatableSlot;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.Rect2i;
 import net.minecraft.client.resources.language.I18n;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvents;
@@ -1772,14 +1776,42 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     }
 
     private void setPatternEncodingSlotActive(Slot slot, boolean active) {
-        if (slot instanceof AppEngSlot appEngSlot) {
-            appEngSlot.setActive(active);
-        }
+        setSlotActive(slot, active);
     }
 
     private void hidePatternEncodingSlot(Slot slot) {
+        hideSlot(slot);
+    }
+
+    private void setSlotActive(Slot slot, boolean active) {
+        if (slot instanceof AppEngSlot appEngSlot) {
+            appEngSlot.setActive(active);
+        } else if (slot instanceof WcwtActivatableSlot activatableSlot) {
+            activatableSlot.setWcwtActive(active);
+        }
+    }
+
+    private void hideSlot(Slot slot) {
+        setSlotActive(slot, false);
         slot.x = HIDDEN_SLOT_POS.getX();
         slot.y = HIDDEN_SLOT_POS.getY();
+    }
+
+    private void showSlot(Slot slot, int x, int y) {
+        setSlotActive(slot, true);
+        slot.x = x;
+        slot.y = y;
+    }
+
+    private void setSemanticSlotsHidden(appeng.menu.SlotSemantic semantic, boolean hidden) {
+        setSlotsHidden(semantic, hidden);
+        for (var slot : menu.getSlots(semantic)) {
+            setSlotActive(slot, !hidden);
+            if (hidden) {
+                slot.x = HIDDEN_SLOT_POS.getX();
+                slot.y = HIDDEN_SLOT_POS.getY();
+            }
+        }
     }
 
     private void rebuildPatternManagementRows() {
@@ -1895,30 +1927,30 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     private void updatePanelSlotActivity() {
         boolean panelOpen = advancedCodingPanel != null && advancedCodingPanel.isVisible();
         for (var semantic : PANEL_SLOT_SEMANTICS) {
-            setSlotsHidden(semantic, !panelOpen);
+            setSemanticSlotsHidden(semantic, !panelOpen);
         }
         boolean rlpcOpen = resonatingLightningPatternCodingPanel != null
                 && resonatingLightningPatternCodingPanel.isVisible();
         for (var semantic : RLPC_PANEL_SLOT_SEMANTICS) {
-            setSlotsHidden(semantic, !rlpcOpen);
+            setSemanticSlotsHidden(semantic, !rlpcOpen);
         }
 
         boolean cosmeticOpen = cosmeticArmorPanel != null && cosmeticArmorPanel.isVisible();
         for (var semantic : COSMETIC_ARMOR_SLOT_SEMANTICS) {
-            setSlotsHidden(semantic, !cosmeticOpen);
+            setSemanticSlotsHidden(semantic, !cosmeticOpen);
         }
         if (cosmeticOpen) {
             positionCosmeticArmorSlots();
         }
 
         boolean curiosOpen = curiosPanel != null && curiosPanel.isVisible();
-        setSlotsHidden(WcwtSlotSemantics.AE_CURIOS, !curiosOpen);
+        setSemanticSlotsHidden(WcwtSlotSemantics.AE_CURIOS, !curiosOpen);
         if (curiosScrollbar != null) {
             curiosScrollbar.setVisible(curiosOpen);
         }
 
         boolean toolkitOpen = toolkitPanel != null && toolkitPanel.isVisible();
-        setSlotsHidden(WcwtSlotSemantics.WCWT_TOOLKIT, !toolkitOpen);
+        setSemanticSlotsHidden(WcwtSlotSemantics.WCWT_TOOLKIT, !toolkitOpen);
         if (toolkitScrollbar != null) {
             toolkitScrollbar.setVisible(toolkitOpen);
         }
@@ -1947,7 +1979,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                         advancedCodingPanel.getY() - topPos - panelHeight + 3));
             }
         } else if (!panelOpen) {
-            setSlotsHidden(com.lhy.wcwt.menu.WcwtSlotSemantics.WCWT_CELL_UPGRADE, true);
+            setSemanticSlotsHidden(com.lhy.wcwt.menu.WcwtSlotSemantics.WCWT_CELL_UPGRADE, true);
         }
     }
 
@@ -1957,8 +1989,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                 && resonatingLightningPatternCodingPanel.isVisible();
         if (!open || resonatingLightningPatternCodingPanel == null) {
             for (var slot : slots) {
-                slot.x = HIDDEN_SLOT_POS.getX();
-                slot.y = HIDDEN_SLOT_POS.getY();
+                hideSlot(slot);
             }
             return;
         }
@@ -1969,19 +2000,19 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         int slotSpacingY = resonatingLightningPatternCodingPanel.getResonatingSlotSpacingY();
         for (int i = 0; i < slots.size(); i++) {
             var slot = slots.get(i);
-            slot.x = bounds.getX() - leftPos
+            int x = bounds.getX() - leftPos
                     + resonatingLightningPatternCodingPanel.getResonatingSlotAnchorX()
                     + (i % columns) * slotSpacingX;
-            slot.y = bounds.getY() - topPos
+            int y = bounds.getY() - topPos
                     + resonatingLightningPatternCodingPanel.getResonatingSlotAnchorY()
                     + (i / columns) * slotSpacingY;
+            showSlot(slot, x, y);
         }
     }
 
     private void hideToolboxSlots() {
         for (var slot : menu.getSlots(SlotSemantics.TOOLBOX)) {
-            slot.x = HIDDEN_SLOT_POS.getX();
-            slot.y = HIDDEN_SLOT_POS.getY();
+            hideSlot(slot);
         }
     }
 
@@ -1993,8 +2024,9 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         var slots = menu.getSlots(SlotSemantics.TOOLBOX);
         for (int i = 0; i < slots.size(); i++) {
             var slot = slots.get(i);
-            slot.x = bounds.getX() - leftPos + toolboxPanel.getSlotRelativeX() + (i % 3) * 18;
-            slot.y = bounds.getY() - topPos + toolboxPanel.getSlotRelativeY() + (i / 3) * 18;
+            int x = bounds.getX() - leftPos + toolboxPanel.getSlotRelativeX() + (i % 3) * 18;
+            int y = bounds.getY() - topPos + toolboxPanel.getSlotRelativeY() + (i / 3) * 18;
+            showSlot(slot, x, y);
         }
     }
 
@@ -2003,8 +2035,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         boolean curiosOpen = curiosPanel != null && curiosPanel.isVisible();
         if (!curiosOpen || curiosPanel == null) {
             for (var slot : slots) {
-                slot.x = HIDDEN_SLOT_POS.getX();
-                slot.y = HIDDEN_SLOT_POS.getY();
+                hideSlot(slot);
             }
             return;
         }
@@ -2030,15 +2061,15 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             boolean visible = i >= firstSlot && i < firstSlot + visibleSlots;
             if (visible) {
                 int visibleIndex = i - firstSlot;
-                slot.x = bounds.getX() - leftPos
+                int x = bounds.getX() - leftPos
                         + curiosPanel.getSlotAnchorX()
                         + (visibleIndex % columns) * CuriosPanel.SLOT_SIZE;
-                slot.y = bounds.getY() - topPos
+                int y = bounds.getY() - topPos
                         + curiosPanel.getSlotAnchorY()
                         + (visibleIndex / columns) * CuriosPanel.SLOT_SIZE;
+                showSlot(slot, x, y);
             } else {
-                slot.x = HIDDEN_SLOT_POS.getX();
-                slot.y = HIDDEN_SLOT_POS.getY();
+                hideSlot(slot);
             }
         }
     }
@@ -2048,8 +2079,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         boolean toolkitOpen = toolkitPanel != null && toolkitPanel.isVisible();
         if (!toolkitOpen || toolkitPanel == null) {
             for (var slot : slots) {
-                slot.x = HIDDEN_SLOT_POS.getX();
-                slot.y = HIDDEN_SLOT_POS.getY();
+                hideSlot(slot);
             }
             return;
         }
@@ -2076,15 +2106,15 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             boolean visible = i >= firstSlot && i < firstSlot + visibleSlots;
             if (visible) {
                 int visibleIndex = i - firstSlot;
-                slot.x = bounds.getX() - leftPos
+                int x = bounds.getX() - leftPos
                         + toolkitPanel.getSlotAnchorX()
                         + (visibleIndex % columns) * ToolkitPanel.SLOT_SIZE;
-                slot.y = bounds.getY() - topPos
+                int y = bounds.getY() - topPos
                         + toolkitPanel.getSlotAnchorY()
                         + (visibleIndex / columns) * ToolkitPanel.SLOT_SIZE;
+                showSlot(slot, x, y);
             } else {
-                slot.x = HIDDEN_SLOT_POS.getX();
-                slot.y = HIDDEN_SLOT_POS.getY();
+                hideSlot(slot);
             }
         }
     }
@@ -2096,8 +2126,9 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         var bounds = cosmeticArmorPanel.getBounds();
         for (int i = 0; i < COSMETIC_ARMOR_SLOT_SEMANTICS.length; i++) {
             for (var slot : menu.getSlots(COSMETIC_ARMOR_SLOT_SEMANTICS[i])) {
-                slot.x = bounds.getX() - leftPos + cosmeticArmorPanel.getSlotRelativeX(i);
-                slot.y = bounds.getY() - topPos + cosmeticArmorPanel.getSlotRelativeY(i);
+                int x = bounds.getX() - leftPos + cosmeticArmorPanel.getSlotRelativeX(i);
+                int y = bounds.getY() - topPos + cosmeticArmorPanel.getSlotRelativeY(i);
+                showSlot(slot, x, y);
             }
         }
     }
@@ -2149,7 +2180,50 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                     256, 256);
         }
         super.renderSlot(guiGraphics, slot);
+        renderCraftablePatternIndicator(guiGraphics, slot);
         renderCurioToggle(guiGraphics, slot);
+    }
+
+    @Override
+    protected List<Component> getTooltipFromContainerItem(ItemStack stack) {
+        var lines = super.getTooltipFromContainerItem(stack);
+        if (hoveredSlot != null && shouldShowCraftableIndicatorForSlot(hoveredSlot)) {
+            lines = new ArrayList<>(lines);
+            lines.add(ButtonToolTips.Craftable.text().withStyle(ChatFormatting.DARK_GRAY));
+        }
+        return lines;
+    }
+
+    private void renderCraftablePatternIndicator(GuiGraphics guiGraphics, Slot slot) {
+        if (!shouldShowCraftableIndicatorForSlot(slot)) {
+            return;
+        }
+        var poseStack = guiGraphics.pose();
+        poseStack.pushPose();
+        poseStack.translate(0, 0, 100);
+        StackSizeRenderer.renderSizeLabel(guiGraphics, this.font, slot.x - 11, slot.y - 11, "+", false);
+        poseStack.popPose();
+    }
+
+    private boolean shouldShowCraftableIndicatorForSlot(Slot slot) {
+        var semantic = menu.getSlotSemantic(slot);
+        if (semantic != SlotSemantics.CRAFTING_GRID
+                && semantic != SlotSemantics.PROCESSING_INPUTS
+                && semantic != SlotSemantics.SMITHING_TABLE_ADDITION
+                && semantic != SlotSemantics.SMITHING_TABLE_BASE
+                && semantic != SlotSemantics.SMITHING_TABLE_TEMPLATE
+                && semantic != SlotSemantics.STONECUTTING_INPUT
+                && semantic != WcwtSlotSemantics.WCWT_PATTERN_CRAFTING_GRID
+                && semantic != WcwtSlotSemantics.WCWT_PATTERN_PROCESSING_INPUTS
+                && semantic != WcwtSlotSemantics.WCWT_PATTERN_SMITHING_ADDITION
+                && semantic != WcwtSlotSemantics.WCWT_PATTERN_SMITHING_BASE
+                && semantic != WcwtSlotSemantics.WCWT_PATTERN_SMITHING_TEMPLATE
+                && semantic != WcwtSlotSemantics.WCWT_PATTERN_STONECUTTING_INPUT) {
+            return false;
+        }
+
+        var slotContent = GenericStack.fromItemStack(slot.getItem());
+        return slotContent != null && repo.isCraftable(slotContent.what());
     }
 
     private void renderResonatingStorageSlot(GuiGraphics guiGraphics, Slot slot) {

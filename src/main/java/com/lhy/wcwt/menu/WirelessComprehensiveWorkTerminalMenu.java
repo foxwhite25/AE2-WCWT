@@ -87,6 +87,10 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     private static final long PERF_LOG_THRESHOLD_NS = 1_000_000L;
     private static final int PATTERN_PROVIDER_SYNC_INTERVAL_TICKS = 20;
     private static final long PATTERN_PROVIDER_SYNC_SUBSCRIPTION_TICKS = 100L;
+    private static final long INVENTORY_SYNC_INTERVAL_TICKS =
+            Math.max(1L, Long.getLong("wcwt.inventorySyncIntervalTicks", 1L));
+    private static final boolean DEBUG_PERF_SKIPPED_INVENTORY_SYNC =
+            Boolean.getBoolean("wcwt.debug.perfSkippedInventorySync");
 
     public static final String TYPE_ID = "wireless_comprehensive_work_terminal";
     public static final String TOP_ACTION = "topAction";
@@ -105,6 +109,10 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             InventoryMenu.EMPTY_ARMOR_SLOT_CHESTPLATE,
             InventoryMenu.EMPTY_ARMOR_SLOT_HELMET
     };
+
+    public interface WcwtActivatableSlot {
+        void setWcwtActive(boolean active);
+    }
 
     /**
      * 元件工作台复制模式，通过自定义 DataSlot 同步给客户端。
@@ -146,6 +154,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     private int patternProviderSyncCooldown;
     private long patternProviderSyncSubscriptionUntilTick;
     private long lastPatternProviderRequestTick = Long.MIN_VALUE;
+    private long lastInventorySyncTick = Long.MIN_VALUE;
 
     public WirelessComprehensiveWorkTerminalMenu(int id, Inventory ip, WirelessComprehensiveWorkTerminalMenuHost host) {
         super(com.lhy.wcwt.init.ModMenus.WCWT_MENU.get(), id, ip, host, false);
@@ -477,9 +486,10 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         }
     }
 
-    private static class PlayerArmorSlot extends Slot {
+    private static class PlayerArmorSlot extends Slot implements WcwtActivatableSlot {
         private final EquipmentSlot equipmentSlot;
         private final Player player;
+        private boolean active = true;
 
         PlayerArmorSlot(Container inventory, int slot, EquipmentSlot equipmentSlot, Player player) {
             super(inventory, slot, 0, 0);
@@ -516,11 +526,22 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         public boolean mayPlace(ItemStack stack) {
             return stack.canEquip(equipmentSlot, player);
         }
+
+        @Override
+        public boolean isActive() {
+            return active;
+        }
+
+        @Override
+        public void setWcwtActive(boolean active) {
+            this.active = active;
+        }
     }
 
-    private static class CosmeticArmorSlot extends Slot {
+    private static class CosmeticArmorSlot extends Slot implements WcwtActivatableSlot {
         private final EquipmentSlot equipmentSlot;
         private final Player player;
+        private boolean active = true;
 
         CosmeticArmorSlot(Container inventory, int slot, EquipmentSlot equipmentSlot, Player player) {
             super(inventory, slot, 0, 0);
@@ -542,9 +563,21 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         public boolean mayPlace(ItemStack stack) {
             return stack.canEquip(equipmentSlot, player);
         }
+
+        @Override
+        public boolean isActive() {
+            return active;
+        }
+
+        @Override
+        public void setWcwtActive(boolean active) {
+            this.active = active;
+        }
     }
 
-    private static class OffhandSlot extends Slot {
+    private static class OffhandSlot extends Slot implements WcwtActivatableSlot {
+        private boolean active = true;
+
         OffhandSlot(Container inventory, int slot) {
             super(inventory, slot, 0, 0);
         }
@@ -553,12 +586,23 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         public Pair<ResourceLocation, ResourceLocation> getNoItemIcon() {
             return Pair.of(InventoryMenu.BLOCK_ATLAS, InventoryMenu.EMPTY_ARMOR_SLOT_SHIELD);
         }
+
+        @Override
+        public boolean isActive() {
+            return active;
+        }
+
+        @Override
+        public void setWcwtActive(boolean active) {
+            this.active = active;
+        }
     }
 
-    public static class WcwtCurioSlot extends SlotItemHandler {
+    public static class WcwtCurioSlot extends SlotItemHandler implements WcwtActivatableSlot {
         private final String identifier;
         private final boolean canToggleRendering;
         private boolean renderStatus;
+        private boolean active = true;
 
         WcwtCurioSlot(CuriosBridge.CurioSlotSpec spec) {
             super(spec.handler(), spec.slotIndex(), 0, 0);
@@ -582,6 +626,16 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
 
         public void toggleRenderStatus() {
             renderStatus = !renderStatus;
+        }
+
+        @Override
+        public boolean isActive() {
+            return active;
+        }
+
+        @Override
+        public void setWcwtActive(boolean active) {
+            this.active = active;
         }
     }
     
@@ -747,6 +801,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         long providerSyncNs = 0L;
         boolean didProviderSync = false;
         int cooldownBefore = patternProviderSyncCooldown;
+        int skippedConnectionRefreshes = 0;
         if (DEBUG_PERF && isServerSide()) {
             totalStartNs = System.nanoTime();
         }
@@ -790,7 +845,15 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             preSuperNs = System.nanoTime() - totalStartNs;
         }
         long superStartNs = DEBUG_PERF && isServerSide() ? System.nanoTime() : 0L;
-        super.broadcastChanges();
+        boolean didInventorySync = shouldRunInventorySync();
+        if (didInventorySync) {
+            super.broadcastChanges();
+        } else if (menuHost != null) {
+            menuHost.consumeSkippedConnectedAccessPointUpdates();
+        }
+        if (DEBUG_PERF && isServerSide() && menuHost != null) {
+            skippedConnectionRefreshes = menuHost.consumeSkippedConnectedAccessPointUpdates();
+        }
         if (DEBUG_PERF && isServerSide()) {
             superNs = System.nanoTime() - superStartNs;
         }
@@ -802,10 +865,11 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
                     || refreshNs >= PERF_LOG_THRESHOLD_NS
                     || mergeNs >= PERF_LOG_THRESHOLD_NS
                     || providerSyncNs >= PERF_LOG_THRESHOLD_NS
-                    || didProviderSync) {
+                    || didProviderSync
+                    || (!didInventorySync && DEBUG_PERF_SKIPPED_INVENTORY_SYNC)) {
                 String playerName = getPlayer() != null ? getPlayer().getScoreboardName() : "<unknown>";
                 WcwtMod.LOGGER.info(
-                        "WCWT perf: broadcastChanges player={}, totalMs={}, preSuperMs={}, superMs={}, refreshMs={}, mergeMs={}, providerSyncMs={}, providerSync={}, cooldownBefore={}, cooldownAfter={}, mode={}, processingMerge={}",
+                        "WCWT perf: broadcastChanges player={}, totalMs={}, preSuperMs={}, superMs={}, refreshMs={}, mergeMs={}, providerSyncMs={}, providerSync={}, inventorySync={}, inventorySyncInterval={}, skippedConnectionRefreshes={}, cooldownBefore={}, cooldownAfter={}, mode={}, processingMerge={}",
                         playerName,
                         formatPerfMs(totalNs),
                         formatPerfMs(preSuperNs),
@@ -814,6 +878,9 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
                         formatPerfMs(mergeNs),
                         formatPerfMs(providerSyncNs),
                         didProviderSync,
+                        didInventorySync,
+                        INVENTORY_SYNC_INTERVAL_TICKS,
+                        skippedConnectionRefreshes,
                         cooldownBefore,
                         patternProviderSyncCooldown,
                         getPatternEncodingMode(),
@@ -822,15 +889,36 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         }
     }
 
+    private boolean shouldRunInventorySync() {
+        if (!isServerSide() || INVENTORY_SYNC_INTERVAL_TICKS <= 1L) {
+            return true;
+        }
+        long tick = getPlayer().level().getGameTime();
+        if (lastInventorySyncTick == Long.MIN_VALUE
+                || tick - lastInventorySyncTick >= INVENTORY_SYNC_INTERVAL_TICKS) {
+            lastInventorySyncTick = tick;
+            return true;
+        }
+        return false;
+    }
+
     private static String formatPerfMs(long nanos) {
         return String.format(java.util.Locale.ROOT, "%.3f", nanos / 1_000_000.0D);
     }
 
     public void requestPatternProviderSyncSubscription() {
+        requestPatternProviderSyncSubscription(true);
+    }
+
+    public void requestPatternProviderSyncSubscription(boolean subscribe) {
         if (!isServerSide() || !(getPlayer() instanceof ServerPlayer serverPlayer)) {
             return;
         }
         long gameTime = serverPlayer.serverLevel().getGameTime();
+        if (!subscribe) {
+            lastPatternProviderRequestTick = gameTime;
+            return;
+        }
         if (gameTime - lastPatternProviderRequestTick < 5L) {
             patternProviderSyncSubscriptionUntilTick = Math.max(
                     patternProviderSyncSubscriptionUntilTick,

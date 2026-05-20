@@ -14,8 +14,10 @@ import appeng.api.storage.ILinkStatus;
 import appeng.api.storage.MEStorage;
 import appeng.api.storage.SupplierStorage;
 import appeng.api.storage.cells.ICellWorkbenchItem;
+import appeng.api.stacks.AEKey;
 import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.AEKeyType;
+import appeng.api.stacks.KeyCounter;
 import appeng.api.upgrades.IUpgradeInventory;
 import appeng.api.upgrades.UpgradeInventories;
 import appeng.helpers.IConfigInvHost;
@@ -65,6 +67,8 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
     private static final boolean DEBUG_PERF = Boolean.getBoolean("wcwt.debug.perf");
     private static final boolean DEBUG_TOOLKIT = Boolean.getBoolean("wcwt.debug.toolkit");
     private static final long PERF_LOG_THRESHOLD_NS = 1_000_000L;
+    private static final long STORAGE_PERF_LOG_THRESHOLD_NS = 5_000_000L;
+    private static final long STORAGE_CACHE_TICKS = Math.max(0L, Long.getLong("wcwt.storageCacheTicks", 5L));
     /**
      * 短暂链路抖动时保留最近一次稳定联网快照，避免 repo 在 1~2 拍内被清空成灰格。
      * 3 tick ~= 150ms，足够吞掉本次日志里看到的瞬时 false/true 抖动，又不会把真实断线拖得太久。
@@ -103,6 +107,12 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
     private IGridNode cachedStableActionableNode;
     private ILinkStatus cachedStableLinkStatus = ILinkStatus.ofDisconnected();
     private long lastStableConnectionTick = Long.MIN_VALUE;
+    private long lastConnectedAccessPointUpdateTick = Long.MIN_VALUE;
+    private boolean forceConnectedAccessPointUpdate;
+    private int skippedConnectedAccessPointUpdates;
+    private String lastRepoDebugState = "";
+    private long lastRepoDebugTick = Long.MIN_VALUE;
+    private int suppressedRepoDebugLogs;
     // AE2WTLIB装备槽 (头盔, 胸甲, 护腿, 靴子, 副手) - 5个槽位
     private final SupplierInternalInventory<InternalInventory> ae2wtlibArmorInv;
     // 装饰性装备槽 (头盔, 胸甲, 护腿, 靴子) - 4个槽位
@@ -162,7 +172,7 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
         // 样板管理区之外，主物品展示区依赖 AE2 的增量仓库同步。
         // 这里若按 ItemStack 引用缓存底层库存，在量子桥/WAP/链接状态切换时可能继续指向旧网格，
         // 导致仓库视图刷新滞后，直到重开菜单才恢复。
-        this.quantumAwareStorage = new SupplierStorage(this::getDynamicQuantumAwareStorage);
+        this.quantumAwareStorage = new TimedStorage(new SupplierStorage(this::getDynamicQuantumAwareStorage));
 
         // 初始化缠绕态奇点槽（单槽，叠加上限 1）
         this.singularityInv = new SupplierInternalInventory<>(
@@ -261,6 +271,152 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
         return getQuantumAwareStorageFromStack(getItemStack());
     }
 
+    private final class TimedStorage implements MEStorage {
+        private final MEStorage delegate;
+        @Nullable
+        private KeyCounter cachedAvailableStacks;
+        private long cachedAvailableStacksTick = Long.MIN_VALUE;
+
+        private TimedStorage(MEStorage delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public boolean isPreferredStorageFor(AEKey what, appeng.api.networking.security.IActionSource source) {
+            return delegate.isPreferredStorageFor(what, source);
+        }
+
+        @Override
+        public long insert(AEKey what, long amount, Actionable mode,
+                           appeng.api.networking.security.IActionSource source) {
+            long startNs = DEBUG_PERF ? System.nanoTime() : 0L;
+            long inserted = delegate.insert(what, amount, mode, source);
+            if (mode == Actionable.MODULATE && inserted != 0) {
+                updateCachedStack(what, inserted);
+            }
+            logStorageMutation("insert", what, amount, inserted, mode, startNs);
+            return inserted;
+        }
+
+        @Override
+        public long extract(AEKey what, long amount, Actionable mode,
+                            appeng.api.networking.security.IActionSource source) {
+            long startNs = DEBUG_PERF ? System.nanoTime() : 0L;
+            long extracted = delegate.extract(what, amount, mode, source);
+            if (mode == Actionable.MODULATE && extracted != 0) {
+                updateCachedStack(what, -extracted);
+            }
+            logStorageMutation("extract", what, amount, extracted, mode, startNs);
+            return extracted;
+        }
+
+        @Override
+        public void getAvailableStacks(KeyCounter out) {
+            long startNs = DEBUG_PERF ? System.nanoTime() : 0L;
+            int before = DEBUG_PERF ? out.size() : 0;
+            KeyCounter snapshot = getCachedAvailableStacks();
+            out.addAll(snapshot);
+            if (DEBUG_PERF) {
+                long elapsedNs = System.nanoTime() - startNs;
+                if (elapsedNs >= STORAGE_PERF_LOG_THRESHOLD_NS) {
+                    WcwtMod.LOGGER.info(
+                            "WCWT perf: storage.getAvailableStacks(out) player={}, totalMs={}, keysBefore={}, keysAfter={}",
+                            getPlayer().getScoreboardName(),
+                            formatPerfMs(elapsedNs),
+                            before,
+                            out.size());
+                }
+            }
+        }
+
+        @Override
+        public net.minecraft.network.chat.Component getDescription() {
+            return delegate.getDescription();
+        }
+
+        @Override
+        public KeyCounter getAvailableStacks() {
+            long startNs = DEBUG_PERF ? System.nanoTime() : 0L;
+            KeyCounter result = copyCounter(getCachedAvailableStacks());
+            if (DEBUG_PERF) {
+                long elapsedNs = System.nanoTime() - startNs;
+                if (elapsedNs >= STORAGE_PERF_LOG_THRESHOLD_NS) {
+                    WcwtMod.LOGGER.info(
+                            "WCWT perf: storage.getAvailableStacks player={}, totalMs={}, keys={}",
+                            getPlayer().getScoreboardName(),
+                            formatPerfMs(elapsedNs),
+                            result.size());
+                }
+            }
+            return result;
+        }
+
+        private KeyCounter getCachedAvailableStacks() {
+            if (STORAGE_CACHE_TICKS <= 0) {
+                return delegate.getAvailableStacks();
+            }
+            long tick = getPlayer().level().getGameTime();
+            if (cachedAvailableStacks != null && tick - cachedAvailableStacksTick <= STORAGE_CACHE_TICKS) {
+                return cachedAvailableStacks;
+            }
+            long startNs = DEBUG_PERF ? System.nanoTime() : 0L;
+            KeyCounter fresh = delegate.getAvailableStacks();
+            cachedAvailableStacks = fresh;
+            cachedAvailableStacksTick = tick;
+            if (DEBUG_PERF) {
+                long elapsedNs = System.nanoTime() - startNs;
+                if (elapsedNs >= STORAGE_PERF_LOG_THRESHOLD_NS) {
+                    WcwtMod.LOGGER.info(
+                            "WCWT perf: storage.cache refresh player={}, totalMs={}, keys={}, cacheTicks={}",
+                            getPlayer().getScoreboardName(),
+                            formatPerfMs(elapsedNs),
+                            fresh.size(),
+                            STORAGE_CACHE_TICKS);
+                }
+            }
+            return fresh;
+        }
+
+        private void updateCachedStack(AEKey what, long delta) {
+            if (cachedAvailableStacks == null || STORAGE_CACHE_TICKS <= 0) {
+                return;
+            }
+
+            long current = cachedAvailableStacks.get(what);
+            long next = current + delta;
+            if (next <= 0) {
+                cachedAvailableStacks.remove(what);
+            } else {
+                cachedAvailableStacks.set(what, next);
+            }
+        }
+
+        private void logStorageMutation(String action, AEKey what, long requested, long changed, Actionable mode,
+                                        long startNs) {
+            if (!DEBUG_PERF) {
+                return;
+            }
+            long elapsedNs = System.nanoTime() - startNs;
+            if (elapsedNs >= PERF_LOG_THRESHOLD_NS) {
+                WcwtMod.LOGGER.info(
+                        "WCWT perf: storage.{} player={}, totalMs={}, requested={}, changed={}, mode={}, key={}",
+                        action,
+                        getPlayer().getScoreboardName(),
+                        formatPerfMs(elapsedNs),
+                        requested,
+                        changed,
+                        mode,
+                        what);
+            }
+        }
+
+        private KeyCounter copyCounter(KeyCounter source) {
+            KeyCounter copy = new KeyCounter();
+            copy.addAll(source);
+            return copy;
+        }
+    }
+
     @Nullable
     @Override
     public IGridNode getActionableNode() {
@@ -328,6 +484,12 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
 
     @Override
     protected void updateConnectedAccessPoint() {
+        long tick = getPlayer().level().getGameTime();
+        if (!forceConnectedAccessPointUpdate && lastConnectedAccessPointUpdateTick == tick) {
+            skippedConnectedAccessPointUpdates++;
+            return;
+        }
+        lastConnectedAccessPointUpdateTick = tick;
         super.updateConnectedAccessPoint();
         quantumStatus = isQuantumLinked();
         IGridNode preferredNode = resolveCurrentPreferredNode();
@@ -347,7 +509,12 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
         long updateConnectedNs = 0L;
         long updateLinkNs = 0L;
         long stageStartNs = DEBUG_PERF ? System.nanoTime() : 0L;
-        updateConnectedAccessPoint();
+        forceConnectedAccessPointUpdate = true;
+        try {
+            updateConnectedAccessPoint();
+        } finally {
+            forceConnectedAccessPointUpdate = false;
+        }
         if (DEBUG_PERF) {
             updateConnectedNs = System.nanoTime() - stageStartNs;
             stageStartNs = System.nanoTime();
@@ -372,6 +539,16 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
             }
         }
         debugRepoState("refreshMenuSyncState");
+    }
+
+    public int consumeSkippedConnectedAccessPointUpdates() {
+        int skipped = skippedConnectedAccessPointUpdates;
+        skippedConnectedAccessPointUpdates = 0;
+        return skipped;
+    }
+
+    private static String formatPerfMs(long nanos) {
+        return String.format(java.util.Locale.ROOT, "%.3f", nanos / 1_000_000.0D);
     }
 
     @Nullable
@@ -414,16 +591,30 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
         if (!DEBUG_REPO) {
             return;
         }
+        long tick = getPlayer().level().getGameTime();
+        String currentState = "superLink=" + super.getLinkStatus()
+                + ", quantumStatus=" + quantumStatus
+                + ", effectiveLink=" + effectiveLinkStatus
+                + ", quantumBridge=" + (quantumBridge != null)
+                + ", actionableNode=" + (super.getActionableNode() != null)
+                + ", levelClient=" + getPlayer().level().isClientSide();
+        boolean stateChanged = !currentState.equals(lastRepoDebugState);
+        boolean sampleDue = tick - lastRepoDebugTick >= 20L;
+        boolean changedDue = stateChanged && tick - lastRepoDebugTick >= 5L;
+        if (lastRepoDebugTick != Long.MIN_VALUE && !sampleDue && !changedDue) {
+            suppressedRepoDebugLogs++;
+            return;
+        }
+        int suppressed = suppressedRepoDebugLogs;
+        suppressedRepoDebugLogs = 0;
+        lastRepoDebugTick = tick;
+        lastRepoDebugState = currentState;
         WcwtMod.LOGGER.info(
-                "WCWT repo debug: host source={} player={} superLink={} quantumStatus={} effectiveLink={} quantumBridge={} actionableNode={} levelClient={}",
+                "WCWT repo debug: host source={} player={} {} suppressed={}",
                 source,
                 getPlayer().getScoreboardName(),
-                super.getLinkStatus(),
-                quantumStatus,
-                effectiveLinkStatus,
-                quantumBridge != null,
-                super.getActionableNode() != null,
-                getPlayer().level().isClientSide());
+                currentState,
+                suppressed);
     }
 
     private ActionHostResult findQuantumBridge(long frequency) {

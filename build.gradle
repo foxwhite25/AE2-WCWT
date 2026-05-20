@@ -74,20 +74,38 @@ repositories {
         name = "TerraformersMC"
         url = "https://maven.terraformersmc.com/"
     }
+    exclusiveContent {
+        forRepository {
+            maven {
+                url = "https://cursemaven.com"
+            }
+        }
+        filter {
+            includeGroup "curse.maven"
+        }
+    }
+    maven {
+        url = uri("https://modmaven.dev/")
+        content {
+            includeGroup "appeng"
+            includeGroup "de.mari_023"
+        }
+    }
 }
 
 dependencies {
-    // 完整 JEI（非仅 API）：编译期需要 RecipesGui、ImmutableRect2i 等实现类；运行时仍由 localRuntime 提供
     compileOnly "mezz.jei:jei-${minecraft_version}-neoforge:${jei_version}"
     compileOnly "mezz.jei:jei-${minecraft_version}-neoforge-api:${jei_version}"
     compileOnly "dev.emi:emi-neoforge:${emi_version}:api"
     compileOnly "org.appliedenergistics:appliedenergistics2:${ae2_version}"
-    
-    compileOnly files("../Applied-Energistics-2-neoforge-v19.2.17/Applied-Energistics-2-neoforge-v19.2.17/build/libs/appliedenergistics2-neoforge-19.2.17.jar")
-    compileOnly files("../AdvancedAE-master/AdvancedAE-master/build/libs/advanced_ae-1.21.1-1.0.0.jar")
-    compileOnly files("../ExtendedAE-1.21.1-neoforge/ExtendedAE-1.21.1-neoforge/build/libs/extendedae-1.21.1-1.0.0.jar")
-    compileOnly files("../ExtendedAE_Plus-1.21.1/ExtendedAE_Plus-1.21.1/build/libs/extendedae_plus-1.21.1-1.0.0.jar")
-    compileOnly files("../AE2WirelessTerminalLibrary-main/AE2WirelessTerminalLibrary-main/ae2wtlib_api/build/libs/ae2wtlib_api-0.0.0-SNAPSHOT.jar")
+    implementation "curse.maven:advancedae-1084104:7849217"
+    runtimeOnly "curse.maven:geckolib-388172:7707149"
+    implementation "curse.maven:ex-pattern-provider-892005:8025439"
+    implementation "curse.maven:glodium-957920:5821676"
+    implementation "curse.maven:extendedae-plus-1337639:7960385"
+    implementation "curse.maven:applied-energistics-2-wireless-terminals-459929:8048692"
+    implementation "de.mari_023:ae2wtlib_api:19.5.0"
+    runtimeOnly "de.mari_023:ae2wtlib:19.5.0"
 
     localRuntime "mezz.jei:jei-${minecraft_version}-neoforge:${jei_version}"
     localRuntime "dev.emi:emi-neoforge:${emi_version}"

@@ -119,7 +119,7 @@ public record PatternProviderListPacket(List<Entry> entries) implements CustomPa
                 if (context.player() instanceof ServerPlayer player) {
                     if (player.containerMenu instanceof com.lhy.wcwt.menu.WirelessComprehensiveWorkTerminalMenu menu) {
                         boolean serveNow = menu.shouldServeImmediatePatternProviderRequest();
-                        menu.requestPatternProviderSyncSubscription();
+                        menu.requestPatternProviderSyncSubscription(false);
                         if (!serveNow) {
                             return;
                         }
