@@ -49,6 +49,7 @@ import com.lhy.wcwt.network.StonecuttingRecipeSelectionPacket;
 import com.lhy.wcwt.network.ToolkitNetworkToolDepositPacket;
 import com.lhy.wcwt.network.CycleProcessingOutputPacket;
 import com.lhy.wcwt.network.WirelessSettingsPacket;
+import com.lhy.wcwt.util.PatternUploadMetadata;
 import com.lhy.wcwt.menu.WcwtSlotSemantics;
 import com.lhy.wcwt.menu.WirelessComprehensiveWorkTerminalMenu.WcwtActivatableSlot;
 import net.minecraft.client.Minecraft;
@@ -299,6 +300,8 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     private long lastAeNetworkToolkitDoubleClickMs;
     private final Set<AEKey> craftableIndicatorKeys = new HashSet<>();
     private @Nullable Method meStorageUpdateScrollbarMethod;
+    private ItemStack lastEncodedPatternForUploadSync = ItemStack.EMPTY;
+    private @Nullable String lastEncodedPatternUploadSearchText;
     
     public WirelessComprehensiveWorkTerminalScreen(WirelessComprehensiveWorkTerminalMenu menu, 
                                                      Inventory playerInventory, 
@@ -1387,6 +1390,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         updatePanelSlotActivity();
         updatePatternEncodingModeButtons();
         updatePatternEncodingSlots();
+        syncPatternManagementSearchFromEncodedPatternSlot();
         updatePatternCacheSlots();
         updatePatternManagement();
         updateCurioSlots();
@@ -1714,6 +1718,60 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             }
             slot.x = encodedPatternRect.left();
             slot.y = encodedPatternRect.top();
+        }
+    }
+
+    private void syncPatternManagementSearchFromEncodedPatternSlot() {
+        Slot encodedPatternSlot = getEncodedPatternSlot();
+        ItemStack encodedPattern = encodedPatternSlot != null ? encodedPatternSlot.getItem() : ItemStack.EMPTY;
+        String uploadSearchText = PatternUploadMetadata.getProviderSearchText(encodedPattern);
+        boolean changed = !ItemStack.isSameItemSameComponents(lastEncodedPatternForUploadSync, encodedPattern)
+                || !Objects.equals(lastEncodedPatternUploadSearchText, uploadSearchText);
+        if (!changed) {
+            return;
+        }
+
+        lastEncodedPatternForUploadSync = encodedPattern.isEmpty() ? ItemStack.EMPTY : encodedPattern.copy();
+        lastEncodedPatternUploadSearchText = uploadSearchText;
+        if (uploadSearchText == null || uploadSearchText.isBlank() || patternManageSearchField == null) {
+            return;
+        }
+
+        String currentSearch = patternManageSearchField.getValue();
+        if (!uploadSearchText.equals(currentSearch)) {
+            patternManageSearchField.setValue(uploadSearchText);
+            rebuildPatternManagementRows();
+        }
+        syncSelectedPatternProviderFromSearch(uploadSearchText);
+    }
+
+    @Nullable
+    private Slot getEncodedPatternSlot() {
+        for (Slot slot : menu.getSlots(SlotSemantics.ENCODED_PATTERN)) {
+            return slot;
+        }
+        return null;
+    }
+
+    private void syncSelectedPatternProviderFromSearch(String uploadSearchText) {
+        String normalizedQuery = uploadSearchText.trim().toLowerCase();
+        if (normalizedQuery.isEmpty()) {
+            return;
+        }
+        var matchingEntries = patternProviders.stream()
+                .filter(entry -> entry.group().name().getString().toLowerCase().contains(normalizedQuery))
+                .toList();
+        var distinctNames = matchingEntries.stream()
+                .map(entry -> entry.group().name().getString())
+                .distinct()
+                .toList();
+        if (distinctNames.size() != 1 || matchingEntries.isEmpty()) {
+            return;
+        }
+        long providerId = matchingEntries.get(0).providerId();
+        if (selectedPatternProviderId != providerId) {
+            selectedPatternProviderId = providerId;
+            selectedPatternProviderSlot = -1;
         }
     }
 

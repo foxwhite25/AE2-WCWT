@@ -14,6 +14,7 @@ import appeng.menu.locator.MenuLocators;
 import com.lhy.wcwt.init.ModComponents;
 import com.lhy.wcwt.init.ModItems;
 import com.lhy.wcwt.init.ModMenus;
+import com.lhy.wcwt.hotkeys.WcwtMagnetHotkeyAction;
 import com.lhy.wcwt.item.WirelessComprehensiveWorkTerminalItem;
 import com.lhy.wcwt.menu.locator.WcwtToolkitNetworkToolLocator;
 import com.lhy.wcwt.menu.WcwtSlotSemantics;
@@ -74,6 +75,7 @@ public class WcwtMod {
                     (player, locator) -> ((WirelessComprehensiveWorkTerminalItem)
                             ModItems.WIRELESS_COMPREHENSIVE_WORK_TERMINAL.get()).openFromInventory(player, locator),
                     HotkeyAction.WIRELESS_TERMINAL);
+            HotkeyActions.register(new WcwtMagnetHotkeyAction(), "ae2wtlib_magnet");
             registerInventorySorterCompat();
 
             // 给 WCWT 物品注册兼容的升级卡。

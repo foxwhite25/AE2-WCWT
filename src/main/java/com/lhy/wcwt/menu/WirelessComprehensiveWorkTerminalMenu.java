@@ -42,6 +42,7 @@ import com.lhy.wcwt.network.PatternEncodingOptionPacket;
 import com.lhy.wcwt.network.PatternProviderFocusPacket;
 import com.lhy.wcwt.network.PatternProviderListPacket;
 import com.lhy.wcwt.network.TopActionPacket;
+import com.lhy.wcwt.util.PatternUploadMetadata;
 import com.lhy.wcwt.util.PatternProviderSorts;
 import com.mojang.datafixers.util.Pair;
 import net.minecraft.core.Direction;
@@ -96,6 +97,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     public static final String TOP_ACTION = "topAction";
     private static final boolean DEBUG_ENCODE = Boolean.getBoolean("wcwt.debug.encode");
     private static final boolean DEBUG_ADVANCED = Boolean.getBoolean("wcwt.debug.advanced");
+    private static final String DEFAULT_CRAFTING_PROVIDER_SEARCH_KEY = "crafting";
 
     /** 元件可装升级卡的最大格数（与 AE2 CellWorkbenchMenu 保持一致：8）。*/
     public static final int CELL_UPGRADE_SLOTS = 8;
@@ -954,29 +956,31 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             return MatrixUploadResult.FAILURE;
         }
 
+        ItemStack uploadStack = PatternUploadMetadata.copyWithoutUploadData(encodedPattern);
+
         var grid = getMenuGrid();
         if (grid == null) {
             return MatrixUploadResult.FAILURE;
         }
 
         try {
-            EcoUploadDuplicateResult ecoDuplicate = findEcoDuplicatePattern(grid, encodedPattern);
+            EcoUploadDuplicateResult ecoDuplicate = findEcoDuplicatePattern(grid, uploadStack);
             if (ecoDuplicate.duplicate()) {
                 serverPlayer.sendSystemMessage(Component.translatable("message.wcwt.eco_pattern_duplicate"));
                 return MatrixUploadResult.uploaded(ecoDuplicate.providerId(), ecoDuplicate.slot());
             }
-            if (NeoEcoUploadBridge.uploadPatternToEcoStorage(grid, encodedPattern.copy())) {
+            if (NeoEcoUploadBridge.uploadPatternToEcoStorage(grid, uploadStack.copy())) {
                 serverPlayer.sendSystemMessage(Component.translatable("message.wcwt.eco_pattern_uploaded"));
-                return findEcoUploadResult(encodedPattern);
+                return findEcoUploadResult(uploadStack);
             }
-            if (ExtendedAePlusUploadBridge.matrixContainsPattern(grid, encodedPattern)) {
+            if (ExtendedAePlusUploadBridge.matrixContainsPattern(grid, uploadStack)) {
                 serverPlayer.sendSystemMessage(Component.translatable("extendedae_plus.message.matrix.duplicate"));
-                return returnBlankPatternFromMatrixUpload(encodedPattern.getCount())
+                return returnBlankPatternFromMatrixUpload(uploadStack.getCount())
                         ? MatrixUploadResult.DUPLICATE_RETURNED
                         : MatrixUploadResult.DUPLICATE_ABORTED;
             }
-            if (ExtendedAePlusUploadBridge.uploadPatternToMatrix(serverPlayer, encodedPattern.copy(), grid)) {
-                return findMatrixUploadResult(encodedPattern);
+            if (ExtendedAePlusUploadBridge.uploadPatternToMatrix(serverPlayer, uploadStack.copy(), grid)) {
+                return findMatrixUploadResult(uploadStack);
             }
         } catch (Throwable ignored) {
         }
@@ -1059,7 +1063,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     }
 
     private UploadAttemptResult uploadEncodedPatternToMatchingProvider(ItemStack encodedPattern, String searchText) {
-        String query = searchText == null ? "" : searchText.trim();
+        String query = resolveUploadSearchTextFromPattern(encodedPattern, searchText);
         if (query.isEmpty() || encodedPattern.isEmpty() || !PatternDetailsHelper.isEncodedPattern(encodedPattern)) {
             return UploadAttemptResult.NO_TARGET;
         }
@@ -1086,13 +1090,23 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         var candidateTargets = matchingTargets.stream()
                 .filter(target -> targetName.equals(target.providerName()))
                 .toList();
+        ItemStack uploadStack = PatternUploadMetadata.copyWithoutUploadData(encodedPattern);
         for (var target : candidateTargets) {
-            if (insertEncodedPattern(target.provider(), encodedPattern)) {
-                int insertedSlot = findLastInsertedPatternSlot(target.provider(), encodedPattern);
+            if (insertEncodedPattern(target.provider(), uploadStack)) {
+                int insertedSlot = findLastInsertedPatternSlot(target.provider(), uploadStack);
                 return new UploadAttemptResult(true, true, targetName, target.providerId(), insertedSlot);
             }
         }
         return new UploadAttemptResult(false, true, targetName, candidateTargets.get(0).providerId(), -1);
+    }
+
+    private String resolveUploadSearchTextFromPattern(ItemStack encodedPattern, @Nullable String fallbackSearchText) {
+        String fromPattern = normalizeProviderSearchText(PatternUploadMetadata.getProviderSearchText(encodedPattern));
+        if (fromPattern != null) {
+            return fromPattern;
+        }
+        String normalizedFallback = normalizeProviderSearchText(fallbackSearchText);
+        return normalizedFallback == null ? "" : normalizedFallback;
     }
 
     private List<PatternContainer> listUploadProviders(boolean requireAvailableSlots) {
@@ -1130,7 +1144,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         }
         for (int i = inv.size() - 1; i >= 0; i--) {
             var stack = inv.getStackInSlot(i);
-            if (!stack.isEmpty() && ItemStack.isSameItemSameComponents(stack, encodedPattern)) {
+            if (!stack.isEmpty() && PatternUploadMetadata.isSamePatternIgnoringUploadData(stack, encodedPattern)) {
                 return i;
             }
         }
@@ -1144,7 +1158,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         }
         for (int i = 0; i < inv.size(); i++) {
             var stack = inv.getStackInSlot(i);
-            if (!stack.isEmpty() && ItemStack.isSameItemSameComponents(stack, encodedPattern)) {
+            if (!stack.isEmpty() && PatternUploadMetadata.isSamePatternIgnoringUploadData(stack, encodedPattern)) {
                 return i;
             }
         }
@@ -1348,6 +1362,10 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             return;
         }
 
+        ResourceLocation recipeId = resolveEncodedPatternRecipeId(mode);
+        String resolvedProviderSearchText = resolvePatternUploadSearchText(mode, providerSearchText, recipeId);
+        writePatternUploadMetadata(encodedPattern, resolvedProviderSearchText);
+
         if (uploadEnabled && mode != EncodingMode.PROCESSING) {
             MatrixUploadResult matrixUploadResult = uploadEncodedPatternToMatrix(encodedPattern);
             if (matrixUploadResult.state() == MatrixUploadState.UPLOADED
@@ -1378,7 +1396,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
 
         UploadAttemptResult uploadAttempt = UploadAttemptResult.NO_TARGET;
         if (uploadEnabled) {
-            uploadAttempt = uploadEncodedPatternToMatchingProvider(encodedPattern, providerSearchText);
+            uploadAttempt = uploadEncodedPatternToMatchingProvider(encodedPattern, resolvedProviderSearchText);
             if (uploadAttempt.uploaded()) {
                 consumePatternForUpload(consumeEditPattern);
                 patternEncodingLogic.setMode(mode);
@@ -1395,7 +1413,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
                     }
                 }
                 logEncode("uploaded mode={}, search={}, provider={}, encoded={}",
-                        mode, providerSearchText, uploadAttempt.providerName(), encodedPattern);
+                        mode, resolvedProviderSearchText, uploadAttempt.providerName(), encodedPattern);
                 broadcastChanges();
                 return;
             }
@@ -1413,6 +1431,105 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
 
     private boolean hasBlankPatternForEncoding() {
         return AEItems.BLANK_PATTERN.is(blankPatternSlot.getItem());
+    }
+
+    private void writePatternUploadMetadata(ItemStack encodedPattern,
+                                            @Nullable String providerSearchText) {
+        PatternUploadMetadata.write(encodedPattern, providerSearchText);
+    }
+
+    @Nullable
+    private String resolvePatternUploadSearchText(EncodingMode mode,
+                                                  @Nullable String providerSearchText,
+                                                  @Nullable ResourceLocation recipeId) {
+        String normalized = normalizeProviderSearchText(providerSearchText);
+        if (normalized != null) {
+            return normalized;
+        }
+        String fromRecipe = recipeId != null ? resolveEaepProviderSearchKey(recipeId.toString()) : null;
+        if (fromRecipe != null) {
+            return fromRecipe;
+        }
+        if (mode != EncodingMode.PROCESSING) {
+            return resolveEaepProviderSearchKey(DEFAULT_CRAFTING_PROVIDER_SEARCH_KEY);
+        }
+        return null;
+    }
+
+    @Nullable
+    private ResourceLocation resolveEncodedPatternRecipeId(EncodingMode mode) {
+        return switch (mode) {
+            case CRAFTING -> resolveCraftingRecipeId();
+            case SMITHING_TABLE -> resolveSmithingRecipeId();
+            case STONECUTTING -> patternEncodingLogic != null ? patternEncodingLogic.getStonecuttingRecipeId() : null;
+            case PROCESSING -> null;
+        };
+    }
+
+    @Nullable
+    private ResourceLocation resolveCraftingRecipeId() {
+        if (patternEncodingLogic == null) {
+            return null;
+        }
+        var ingredients = new ItemStack[9];
+        boolean valid = false;
+        for (int slot = 0; slot < ingredients.length; slot++) {
+            GenericStack stack = patternEncodingLogic.getEncodedInputInv().getStack(slot);
+            if (stack == null) {
+                ingredients[slot] = ItemStack.EMPTY;
+                continue;
+            }
+            if (!(stack.what() instanceof AEItemKey itemKey)) {
+                return null;
+            }
+            ingredients[slot] = itemKey.toStack(1);
+            valid = true;
+        }
+        if (!valid) {
+            return null;
+        }
+        var input = CraftingInput.of(3, 3, java.util.Arrays.asList(ingredients));
+        var level = getPlayer().level();
+        var recipe = level.getRecipeManager().getRecipeFor(RecipeType.CRAFTING, input, level).orElse(null);
+        return recipe != null ? recipe.id() : null;
+    }
+
+    @Nullable
+    private ResourceLocation resolveSmithingRecipeId() {
+        if (patternEncodingLogic == null
+                || !(patternEncodingLogic.getEncodedInputInv().getKey(0) instanceof AEItemKey template)
+                || !(patternEncodingLogic.getEncodedInputInv().getKey(1) instanceof AEItemKey base)
+                || !(patternEncodingLogic.getEncodedInputInv().getKey(2) instanceof AEItemKey addition)) {
+            return null;
+        }
+        var input = new SmithingRecipeInput(template.toStack(), base.toStack(), addition.toStack());
+        var level = getPlayer().level();
+        var recipe = level.getRecipeManager().getRecipeFor(RecipeType.SMITHING, input, level).orElse(null);
+        return recipe != null ? recipe.id() : null;
+    }
+
+    @Nullable
+    private static String normalizeProviderSearchText(@Nullable String text) {
+        if (text == null) {
+            return null;
+        }
+        String trimmed = text.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    @Nullable
+    private static String resolveEaepProviderSearchKey(@Nullable String rawKey) {
+        String normalized = normalizeProviderSearchText(rawKey);
+        if (normalized == null) {
+            return null;
+        }
+        try {
+            var utilClass = Class.forName("com.extendedae_plus.util.uploadPattern.ExtendedAEPatternUploadUtil");
+            Object value = utilClass.getMethod("resolveSearchKeyAlias", String.class).invoke(null, normalized);
+            return value instanceof String text ? normalizeProviderSearchText(text) : normalized;
+        } catch (Throwable ignored) {
+            return normalized;
+        }
     }
 
     private void consumeBlankPatternForEncoding() {

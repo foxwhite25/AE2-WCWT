@@ -11,6 +11,7 @@ import com.lhy.wcwt.menu.WirelessComprehensiveWorkTerminalMenu;
 import com.lhy.wcwt.network.JeiCraftingTransferPacket;
 import com.lhy.wcwt.network.WcwtPullRecipeInputsPacket;
 import com.lhy.wcwt.network.WcwtPullRecipeInputsPacket.RequestedIngredient;
+import com.lhy.wcwt.pull.WcwtIngredientPriorities;
 import com.lhy.wcwt.pull.WcwtPullIngredientOrdering;
 import dev.emi.emi.api.recipe.EmiPlayerInventory;
 import dev.emi.emi.api.recipe.EmiRecipe;
@@ -189,7 +190,7 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
         }
 
         if (isCraftingGridLocked(menu)) {
-            List<RequestedIngredient> requestedIngredients = collectRequestedIngredients(recipe);
+            List<RequestedIngredient> requestedIngredients = collectRequestedIngredients(menu, recipe);
             if (requestedIngredients.isEmpty()) {
                 return false;
             }
@@ -200,7 +201,7 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
         }
 
         EncodingMode mode = getTransferMode(recipe);
-        List<@Nullable GenericStack> inputs = collectEncodingInputs(recipe);
+        List<@Nullable GenericStack> inputs = collectEncodingInputs(menu, recipe);
         List<@Nullable GenericStack> outputs = collectEncodingOutputs(recipe);
         if (inputs.stream().allMatch(Objects::isNull) && outputs.stream().allMatch(Objects::isNull)) {
             return false;
@@ -364,7 +365,7 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
 
     private static boolean isAvailableFromNetwork(Set<AEKey> availableNetworkKeys, EmiIngredient ingredient) {
         return ingredient.getEmiStacks().stream().anyMatch(emiIngredient -> {
-            var stack = toGenericStack(emiIngredient);
+            var stack = toGenericStack(emiIngredient, 1);
             return stack != null && availableNetworkKeys.contains(stack.what());
         });
     }
@@ -423,10 +424,11 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
         poseStack.popPose();
     }
 
-    private static List<@Nullable GenericStack> collectEncodingInputs(EmiRecipe recipe) {
+    private static List<@Nullable GenericStack> collectEncodingInputs(WirelessComprehensiveWorkTerminalMenu menu,
+                                                                      EmiRecipe recipe) {
         EncodingMode mode = getTransferMode(recipe);
         List<@Nullable GenericStack> sparseInputs = recipe.getInputs().stream()
-                .map(WcwtEmiRecipeHandler::toGenericStack)
+                .map(ingredient -> toGenericStack(menu, ingredient))
                 .limit(mode == EncodingMode.CRAFTING ? 9 : Integer.MAX_VALUE)
                 .toList();
         if (mode == EncodingMode.PROCESSING) {
@@ -440,21 +442,23 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
             return List.of();
         }
         return recipe.getOutputs().stream()
-                .map(WcwtEmiRecipeHandler::toGenericStack)
+                .map(stack -> toGenericStack(stack, 1))
                 .filter(Objects::nonNull)
                 .toList();
     }
 
-    private static List<RequestedIngredient> collectRequestedIngredients(EmiRecipe recipe) {
+    private static List<RequestedIngredient> collectRequestedIngredients(WirelessComprehensiveWorkTerminalMenu menu,
+                                                                         EmiRecipe recipe) {
         return recipe.getInputs().stream()
                 .filter(ingredient -> !ingredient.isEmpty())
-                .map(WcwtEmiRecipeHandler::toRequestedIngredient)
+                .map(ingredient -> toRequestedIngredient(menu, ingredient))
                 .filter(Objects::nonNull)
                 .toList();
     }
 
     @Nullable
-    private static RequestedIngredient toRequestedIngredient(EmiIngredient ingredient) {
+    private static RequestedIngredient toRequestedIngredient(WirelessComprehensiveWorkTerminalMenu menu,
+                                                             EmiIngredient ingredient) {
         List<ItemStack> alternatives = new ArrayList<>();
         for (var emiStack : ingredient.getEmiStacks()) {
             ItemStack stack = emiStack.getItemStack();
@@ -468,7 +472,7 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
             }
             alternatives.add(copy);
         }
-        alternatives = WcwtPullIngredientOrdering.preferSpecificComponentsFirst(alternatives);
+        alternatives = WcwtIngredientPriorities.sortItemAlternatives(menu, alternatives);
         if (alternatives.isEmpty()) {
             return null;
         }
@@ -477,51 +481,45 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
     }
 
     @Nullable
-    private static GenericStack toGenericStack(EmiIngredient ingredient) {
+    private static GenericStack toGenericStack(@Nullable WirelessComprehensiveWorkTerminalMenu menu,
+                                               EmiIngredient ingredient) {
         if (ingredient == null || ingredient.isEmpty()) {
             return null;
         }
 
-        GenericStack direct = tryConvertDirectSingleIngredient(ingredient);
-        if (direct != null) {
-            return direct;
-        }
-
+        List<GenericStack> candidates = new ArrayList<>();
         for (var emiStack : ingredient.getEmiStacks()) {
-            ItemStack displayed = emiStack.getItemStack();
-            if (displayed.isEmpty()) {
-                continue;
+            GenericStack candidate = toGenericStack(emiStack, ingredient.getAmount());
+            if (candidate != null) {
+                candidates.add(candidate);
             }
-            return GenericStack.fromItemStack(displayed.copyWithCount(Math.max(1, (int) Math.min(Integer.MAX_VALUE,
-                    ingredient.getAmount()))));
+        }
+        GenericStack best = WcwtIngredientPriorities.chooseBestGenericStack(menu, candidates);
+        if (best != null) {
+            return best;
         }
         return null;
     }
 
     @Nullable
-    private static GenericStack tryConvertDirectSingleIngredient(EmiIngredient ingredient) {
-        EmiStack onlyStack = null;
-        for (var stack : ingredient.getEmiStacks()) {
-            if (stack.isEmpty()) {
-                continue;
-            }
-            if (onlyStack != null) {
-                return null;
-            }
-            onlyStack = stack;
-        }
-        if (onlyStack == null) {
+    private static GenericStack toGenericStack(EmiStack stack, long amount) {
+        if (stack == null || stack.isEmpty()) {
             return null;
         }
-        GenericStack fluid = convertFluid(onlyStack, ingredient.getAmount());
+        GenericStack fluid = convertFluid(stack, amount);
         if (fluid != null) {
             return fluid;
         }
-        GenericStack chemical = convertMekanismChemical(onlyStack.getKey(), ingredient.getAmount());
+        GenericStack chemical = convertMekanismChemical(stack.getKey(), amount);
         if (chemical != null) {
             return chemical;
         }
-        return null;
+        ItemStack displayed = stack.getItemStack();
+        if (displayed.isEmpty()) {
+            return null;
+        }
+        return GenericStack.fromItemStack(displayed.copyWithCount(
+                Math.max(1, (int) Math.min(Integer.MAX_VALUE, amount))));
     }
 
     private static boolean containsEquivalentStack(List<ItemStack> stacks, ItemStack candidate) {

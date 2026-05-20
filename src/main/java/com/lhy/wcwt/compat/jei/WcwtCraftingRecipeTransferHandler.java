@@ -77,7 +77,7 @@ public class WcwtCraftingRecipeTransferHandler
                 WcwtRecipeTransferHandler.updateEaepProviderSearchKey(recipeHolder, recipe, EncodingMode.CRAFTING);
                 PacketDistributor.sendToServer(new JeiCraftingTransferPacket(
                         WcwtRecipeTransferHandler.collectCraftingLikeInputs(
-                                recipeHolder, recipe, recipeSlots, EncodingMode.CRAFTING),
+                                menu, recipeHolder, recipe, recipeSlots, EncodingMode.CRAFTING),
                         java.util.List.of(),
                         false,
                         EncodingMode.CRAFTING));

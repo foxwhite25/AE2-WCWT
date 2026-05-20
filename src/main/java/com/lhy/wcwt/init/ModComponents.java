@@ -1,6 +1,7 @@
 package com.lhy.wcwt.init;
 
 import com.lhy.wcwt.WcwtMod;
+import com.mojang.serialization.Codec;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -117,7 +118,16 @@ public class ModComponents {
             register("pattern_management_search_mode", builder -> builder
                     .persistent(com.mojang.serialization.Codec.INT)
                     .networkSynchronized(ByteBufCodecs.INT));
-    
+
+    /**
+     * 编码样板的 WCWT 上传元数据。
+     * 用于在样板离开当前编码上下文后，仍能恢复其自动上传目标信息。
+     */
+    public static final DeferredHolder<DataComponentType<?>, DataComponentType<String>> PATTERN_UPLOAD_DATA =
+            register("pattern_upload_data", builder -> builder
+                    .persistent(Codec.STRING)
+                    .networkSynchronized(ByteBufCodecs.STRING_UTF8));
+
     private static <T> DeferredHolder<DataComponentType<?>, DataComponentType<T>> register(
             String name, Consumer<DataComponentType.Builder<T>> customizer) {
         return DATA_COMPONENTS.register(name, () -> {

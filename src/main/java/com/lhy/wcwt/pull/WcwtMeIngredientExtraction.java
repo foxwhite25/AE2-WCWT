@@ -38,15 +38,14 @@ public final class WcwtMeIngredientExtraction {
 
     public static List<ItemStack> extractAlternatives(MEStorage storage, IEnergySource energy, IActionSource actionSource,
             @Nullable IPartitionList filter, List<ItemStack> alternativeStacks, int amount) {
-        List<AEItemKey> preferredKeys = WcwtPullIngredientOrdering.preferSpecificItemKeysFirst(
-                alternativeStacks.stream()
-                        .map(AEItemKey::of)
-                        .filter(Objects::nonNull)
-                        .filter(k -> filter == null || filter.isListed(k))
-                        .distinct()
-                        .toList());
+        List<AEItemKey> preferredKeys = WcwtIngredientPriorities.deduplicateItemAlternatives(alternativeStacks).stream()
+                .map(AEItemKey::of)
+                .filter(Objects::nonNull)
+                .filter(k -> filter == null || filter.isListed(k))
+                .distinct()
+                .toList();
         Ingredient wide = ingredientFromItemStacks(alternativeStacks);
-        List<ItemStack> orderedAlts = WcwtPullIngredientOrdering.preferSpecificComponentsFirst(alternativeStacks);
+        List<ItemStack> orderedAlts = WcwtIngredientPriorities.deduplicateItemAlternatives(alternativeStacks);
 
         Map<AEItemKey, Integer> extractedByKey = new LinkedHashMap<>();
         for (int i = 0; i < amount; i++) {
@@ -114,13 +113,12 @@ public final class WcwtMeIngredientExtraction {
 
     public static boolean reserveOneUnit(Map<AEItemKey, Long> remaining, List<ItemStack> alternativeStacks,
             @Nullable Ingredient wideIngredient) {
-        List<AEItemKey> preferredKeys = WcwtPullIngredientOrdering.preferSpecificItemKeysFirst(
-                alternativeStacks.stream()
-                        .map(AEItemKey::of)
-                        .filter(Objects::nonNull)
-                        .distinct()
-                        .toList());
-        List<ItemStack> orderedAlts = WcwtPullIngredientOrdering.preferSpecificComponentsFirst(alternativeStacks);
+        List<AEItemKey> preferredKeys = WcwtIngredientPriorities.deduplicateItemAlternatives(alternativeStacks).stream()
+                .map(AEItemKey::of)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        List<ItemStack> orderedAlts = WcwtIngredientPriorities.deduplicateItemAlternatives(alternativeStacks);
 
         for (AEItemKey candidate : preferredKeys) {
             long available = remaining.getOrDefault(candidate, 0L);

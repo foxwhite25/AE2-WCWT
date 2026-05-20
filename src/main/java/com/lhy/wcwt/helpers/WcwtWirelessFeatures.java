@@ -18,6 +18,7 @@ import com.lhy.wcwt.WcwtMod;
 import com.lhy.wcwt.item.WirelessComprehensiveWorkTerminalItem;
 import com.lhy.wcwt.network.WcwtPickBlockPacket;
 import com.lhy.wcwt.network.WcwtRestockAmountsPacket;
+import de.mari_023.ae2wtlib.api.TextConstants;
 import de.mari_023.ae2wtlib.api.AE2wtlibComponents;
 import de.mari_023.ae2wtlib.api.AE2wtlibTags;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -217,6 +218,35 @@ public final class WcwtWirelessFeatures {
         PacketDistributor.sendToServer(new WcwtPickBlockPacket(stack));
     }
 
+    public static boolean toggleMagnetHotkey(Player player) {
+        ItemStack terminal = findTerminalStack(player, WcwtWirelessFeatures::hasMagnetCard);
+        if (terminal.isEmpty()) {
+            return false;
+        }
+
+        String nextMode = switch (getMagnetModeName(terminal)) {
+            case "OFF" -> {
+                player.displayClientMessage(TextConstants.HOTKEY_MAGNETCARD_INVENTORY, true);
+                yield "PICKUP_INVENTORY";
+            }
+            case "PICKUP_INVENTORY" -> {
+                player.displayClientMessage(TextConstants.HOTKEY_MAGNETCARD_ME, true);
+                yield "PICKUP_ME";
+            }
+            case "PICKUP_ME" -> {
+                player.displayClientMessage(TextConstants.PICKUP_ME_NO_MAGNET, true);
+                yield "PICKUP_ME_NO_MAGNET";
+            }
+            case "PICKUP_ME_NO_MAGNET" -> {
+                player.displayClientMessage(TextConstants.HOTKEY_MAGNETCARD_OFF, true);
+                yield "OFF";
+            }
+            default -> null;
+        };
+
+        return nextMode != null && setMagnetMode(terminal, nextMode);
+    }
+
     public static void pickBlock(ServerPlayer player, ItemStack requestedStack) {
         var terminalTarget = findTerminalTarget(player,
                 stack -> stack.getOrDefault(AE2wtlibComponents.PICK_BLOCK, false));
@@ -324,6 +354,27 @@ public final class WcwtWirelessFeatures {
         return false;
     }
 
+    private static ItemStack findTerminalStack(Player player, java.util.function.Predicate<ItemStack> predicate) {
+        var cap = player.getCapability(CuriosIntegration.ITEM_HANDLER);
+        if (cap != null) {
+            for (int i = 0; i < cap.getSlots(); i++) {
+                ItemStack stack = cap.getStackInSlot(i);
+                if (stack.getItem() instanceof WirelessComprehensiveWorkTerminalItem && predicate.test(stack)) {
+                    return stack;
+                }
+            }
+        }
+
+        Inventory inventory = player.getInventory();
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
+            ItemStack stack = inventory.getItem(i);
+            if (stack.getItem() instanceof WirelessComprehensiveWorkTerminalItem && predicate.test(stack)) {
+                return stack;
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
     private static ItemStack findTerminalStack(ServerPlayer player, java.util.function.Predicate<ItemStack> predicate) {
         var target = findTerminalTarget(player, predicate);
         return target == null ? ItemStack.EMPTY : target.stack();
@@ -386,6 +437,39 @@ public final class WcwtWirelessFeatures {
         return card != null
                 && terminal.getItem() instanceof IUpgradeableItem upgradeable
                 && upgradeable.getUpgrades(terminal).isInstalled(card);
+    }
+
+    private static String getMagnetModeName(ItemStack terminal) {
+        try {
+            Field componentField = Class.forName("de.mari_023.ae2wtlib.AE2wtlibAdditionalComponents")
+                    .getField("MAGNET_SETTINGS");
+            @SuppressWarnings("rawtypes")
+            net.minecraft.core.component.DataComponentType component =
+                    (net.minecraft.core.component.DataComponentType) componentField.get(null);
+            Class<?> modeClass = Class.forName("de.mari_023.ae2wtlib.wct.magnet_card.MagnetMode");
+            @SuppressWarnings({"rawtypes", "unchecked"})
+            Object fallback = Enum.valueOf((Class<Enum>) modeClass.asSubclass(Enum.class), "OFF");
+            Object mode = terminal.getOrDefault(component, fallback);
+            return mode instanceof Enum<?> enumValue ? enumValue.name() : "OFF";
+        } catch (ReflectiveOperationException e) {
+            return "OFF";
+        }
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static boolean setMagnetMode(ItemStack terminal, String modeName) {
+        try {
+            Field componentField = Class.forName("de.mari_023.ae2wtlib.AE2wtlibAdditionalComponents")
+                    .getField("MAGNET_SETTINGS");
+            net.minecraft.core.component.DataComponentType component =
+                    (net.minecraft.core.component.DataComponentType) componentField.get(null);
+            Class<?> modeClass = Class.forName("de.mari_023.ae2wtlib.wct.magnet_card.MagnetMode");
+            Object mode = Enum.valueOf((Class<Enum>) modeClass.asSubclass(Enum.class), modeName);
+            terminal.set(component, mode);
+            return true;
+        } catch (ReflectiveOperationException e) {
+            return false;
+        }
     }
 
     private static double getMagnetRange() {

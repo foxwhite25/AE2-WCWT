@@ -6,6 +6,7 @@ import appeng.util.inv.FilteredInternalInventory;
 import appeng.util.inv.filter.IAEItemFilter;
 import com.lhy.wcwt.WcwtMod;
 import com.lhy.wcwt.menu.WirelessComprehensiveWorkTerminalMenu;
+import com.lhy.wcwt.util.PatternUploadMetadata;
 import com.lhy.wcwt.util.PatternProviderSorts;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.network.chat.Component;
@@ -178,7 +179,11 @@ public record PatternManagementActionPacket(Action action,
         }
 
         PatternContainer provider = null;
-        if (preferredProviderId > 0) {
+        String patternSearchText = PatternUploadMetadata.getProviderSearchText(sourceStack);
+        if (patternSearchText != null) {
+            provider = findMatchingProviderBySearchText(providers, patternSearchText);
+        }
+        if (provider == null && preferredProviderId > 0) {
             provider = getProviderByOrdinal(player, preferredProviderId);
         }
         if (provider == null) {
@@ -190,7 +195,7 @@ public record PatternManagementActionPacket(Action action,
         }
 
         var filtered = new FilteredInternalInventory(inv, new EncodedPatternFilter());
-        ItemStack toInsert = sourceStack.copy();
+        ItemStack toInsert = PatternUploadMetadata.copyWithoutUploadData(sourceStack);
         ItemStack remain = filtered.addItems(toInsert);
         int inserted = toInsert.getCount() - remain.getCount();
         if (inserted <= 0) {
@@ -214,16 +219,12 @@ public record PatternManagementActionPacket(Action action,
             return;
         }
 
-        var provider = getProviderByOrdinal(player, providerId);
+        var providers = listProviders(player);
+        var provider = getProviderByOrdinal(providers, providerId);
         if (provider == null) {
             player.displayClientMessage(Component.translatable("gui.wcwt.pattern_management.provider_missing"), true);
             return;
         }
-        var inv = provider.getTerminalPatternInventory();
-        if (inv == null) {
-            return;
-        }
-        var filtered = new FilteredInternalInventory(inv, new EncodedPatternFilter());
         int insertedTotal = 0;
         boolean foundPattern = false;
         for (int cacheSlot = 0; cacheSlot < patternCache.size(); cacheSlot++) {
@@ -233,7 +234,20 @@ public record PatternManagementActionPacket(Action action,
             }
 
             foundPattern = true;
-            ItemStack toInsert = pattern.copy();
+            PatternContainer targetProvider = provider;
+            String patternSearchText = PatternUploadMetadata.getProviderSearchText(pattern);
+            if (patternSearchText != null) {
+                targetProvider = findMatchingProviderBySearchText(providers, patternSearchText);
+            }
+            if (targetProvider == null) {
+                targetProvider = provider;
+            }
+            var inv = targetProvider.getTerminalPatternInventory();
+            if (inv == null) {
+                continue;
+            }
+            var filtered = new FilteredInternalInventory(inv, new EncodedPatternFilter());
+            ItemStack toInsert = PatternUploadMetadata.copyWithoutUploadData(pattern);
             ItemStack remain = filtered.addItems(toInsert);
             int inserted = toInsert.getCount() - remain.getCount();
             if (inserted > 0) {
@@ -314,6 +328,10 @@ public record PatternManagementActionPacket(Action action,
 
     private static PatternContainer getProviderByOrdinal(ServerPlayer player, long providerId) {
         var providers = listProviders(player);
+        return getProviderByOrdinal(providers, providerId);
+    }
+
+    private static PatternContainer getProviderByOrdinal(List<PatternContainer> providers, long providerId) {
         int index = (int) providerId - 1;
         if (index < 0 || index >= providers.size()) {
             return null;
@@ -352,6 +370,39 @@ public record PatternManagementActionPacket(Action action,
         }
         providers.sort(PatternProviderSorts.STABLE);
         return providers;
+    }
+
+    private static PatternContainer findMatchingProviderBySearchText(List<PatternContainer> providers, String searchText) {
+        if (searchText == null || searchText.isBlank()) {
+            return null;
+        }
+        String normalizedQuery = searchText.toLowerCase();
+        var matches = providers.stream()
+                .filter(provider -> {
+                    String displayName = getProviderDisplayName(provider);
+                    return displayName != null && displayName.toLowerCase().contains(normalizedQuery);
+                })
+                .map(PatternManagementActionPacket::getProviderDisplayName)
+                .distinct()
+                .toList();
+        if (matches.size() != 1) {
+            return null;
+        }
+        String targetName = matches.get(0);
+        for (var provider : providers) {
+            if (targetName.equals(getProviderDisplayName(provider))) {
+                return provider;
+            }
+        }
+        return null;
+    }
+
+    private static String getProviderDisplayName(PatternContainer provider) {
+        String bridgeName = ExtendedAePlusBridge.getProviderDisplayName(provider);
+        if (bridgeName != null && !bridgeName.isBlank()) {
+            return bridgeName;
+        }
+        return provider.getTerminalGroup().name().getString();
     }
 
     private static Location getLocation(PatternContainer provider) {
@@ -417,6 +468,16 @@ public record PatternManagementActionPacket(Action action,
                 return result instanceof Integer count ? count : 0;
             } catch (Throwable ignored) {
                 return 0;
+            }
+        }
+
+        static String getProviderDisplayName(PatternContainer provider) {
+            try {
+                var method = Class.forName(UTIL_CLASS).getMethod("getProviderDisplayName", PatternContainer.class);
+                Object result = method.invoke(null, provider);
+                return result instanceof String text ? text : null;
+            } catch (Throwable ignored) {
+                return null;
             }
         }
     }

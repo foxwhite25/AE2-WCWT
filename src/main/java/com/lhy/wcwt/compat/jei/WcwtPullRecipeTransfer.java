@@ -28,6 +28,7 @@ import mezz.jei.api.recipe.transfer.IRecipeTransferHandlerHelper;
 import com.lhy.wcwt.menu.WirelessComprehensiveWorkTerminalMenu;
 import com.lhy.wcwt.network.WcwtPullRecipeInputsPacket;
 import com.lhy.wcwt.network.WcwtPullRecipeInputsPacket.RequestedIngredient;
+import com.lhy.wcwt.pull.WcwtIngredientPriorities;
 import com.lhy.wcwt.pull.WcwtPullIngredientOrdering;
 
 /** JEI「+」从 ME 拉配方原料：锁定合成网格时生效；编码逻辑见 {@link WcwtRecipeTransferHandler}。 */
@@ -41,7 +42,7 @@ public final class WcwtPullRecipeTransfer {
             boolean maxTransfer, boolean doTransfer, IRecipeTransferHandlerHelper transferHelper) {
         boolean craftMissing = Screen.hasControlDown();
 
-        List<RequestedIngredient> requestedIngredients = collectRequestedIngredients(recipeSlots);
+        List<RequestedIngredient> requestedIngredients = collectRequestedIngredients(menu, recipeSlots);
         if (requestedIngredients.isEmpty()) {
             return transferHelper.createUserErrorWithTooltip(
                     Component.translatable("message.wcwt.pull_no_inputs"));
@@ -59,10 +60,11 @@ public final class WcwtPullRecipeTransfer {
         return null;
     }
 
-    private static List<RequestedIngredient> collectRequestedIngredients(IRecipeSlotsView recipeSlots) {
+    private static List<RequestedIngredient> collectRequestedIngredients(WirelessComprehensiveWorkTerminalMenu menu,
+                                                                         IRecipeSlotsView recipeSlots) {
         return collectInputSlots(recipeSlots).stream()
                 .filter(WcwtPullRecipeTransfer::hasItemStack)
-                .map(WcwtPullRecipeTransfer::toRequestedIngredient)
+                .map(slotView -> toRequestedIngredient(menu, slotView))
                 .filter(ingredient -> !ingredient.alternatives().isEmpty())
                 .toList();
     }
@@ -165,11 +167,11 @@ public final class WcwtPullRecipeTransfer {
         return Ingredient.of(slotView.getItemStacks().map(ItemStack::copy));
     }
 
-    private static RequestedIngredient toRequestedIngredient(IRecipeSlotView slotView) {
-        List<ItemStack> alternatives = WcwtPullIngredientOrdering.preferSpecificComponentsFirst(slotView.getItemStacks()
+    private static RequestedIngredient toRequestedIngredient(WirelessComprehensiveWorkTerminalMenu menu,
+                                                             IRecipeSlotView slotView) {
+        List<ItemStack> alternatives = WcwtIngredientPriorities.sortItemAlternatives(menu, slotView.getItemStacks()
                 .filter(stack -> !stack.isEmpty())
                 .map(ItemStack::copy)
-                .distinct()
                 .toList());
         int count = Math.max(getDisplayedStack(slotView).getCount(), 1);
         return new RequestedIngredient(alternatives, count);

@@ -181,7 +181,7 @@ public final class WcwtTerminalPullService {
                 continue;
             }
 
-            List<ItemStack> alternatives = WcwtPullIngredientOrdering.preferSpecificComponentsFirst(
+            List<ItemStack> alternatives = WcwtIngredientPriorities.deduplicateItemAlternatives(
                     ingredient.alternatives().stream()
                             .filter(stack -> stack != null && !stack.isEmpty())
                             .map(ItemStack::copy)
