@@ -48,7 +48,8 @@ public class ModClientSetup {
         if (!(Minecraft.getInstance().screen instanceof WirelessComprehensiveWorkTerminalScreen screen)) {
             return;
         }
-        if (screen.handleExtendedUiHotkey(event.getKeyCode(), event.getScanCode())) {
+        if (!screen.isTypingInPatternManagementField()
+                && screen.handleExtendedUiHotkey(event.getKeyCode(), event.getScanCode())) {
             event.setCanceled(true);
             return;
         }

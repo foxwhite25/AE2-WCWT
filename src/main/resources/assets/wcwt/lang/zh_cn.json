@@ -69,6 +69,8 @@
   "gui.wcwt.pattern_management.reload_mapping": "重载映射",
   "gui.wcwt.pattern_management.delete_mapping": "删除映射",
   "gui.wcwt.pattern_management.cancel": "取消",
+  "gui.wcwt.pattern_management.auto_upload.enabled": "启用上传样板功能：开",
+  "gui.wcwt.pattern_management.auto_upload.disabled": "启用上传样板功能：关",
   "gui.wcwt.pattern_management.add_mapping.tooltip": "将上方搜索关键字映射到下方名称。",
   "gui.wcwt.pattern_management.reload_mapping.tooltip": "重载样板供应器搜索映射。",
   "gui.wcwt.pattern_management.delete_mapping.tooltip": "删除与下方名称匹配的映射。",

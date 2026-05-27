@@ -467,7 +467,8 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
             rememberStableConnection(superNode, ILinkStatus.ofConnected());
             return superNode;
         }
-        if (isWithinTransientDisconnectGrace()
+        if (allowsTransientDisconnectGrace(getLinkStatus())
+                && isWithinTransientDisconnectGrace()
                 && cachedStableActionableNode != null
                 && cachedStableActionableNode.getGrid() != null) {
             debugRepoState("getActionableNode/grace");
@@ -496,7 +497,10 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
         if (quantumStatus != null && !quantumStatus.equals(ILinkStatus.ofDisconnected())) {
             effectiveLinkStatus = quantumStatus;
         }
-        if (!effectiveLinkStatus.connected() && isWithinTransientDisconnectGrace() && hasStableConnectionSnapshot()) {
+        if (!effectiveLinkStatus.connected()
+                && allowsTransientDisconnectGrace(effectiveLinkStatus)
+                && isWithinTransientDisconnectGrace()
+                && hasStableConnectionSnapshot()) {
             effectiveLinkStatus = cachedStableLinkStatus.connected() ? cachedStableLinkStatus : ILinkStatus.ofConnected();
             debugRepoState("updateLinkStatus/grace");
             return;
@@ -623,6 +627,17 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
         }
         long tick = getPlayer().level().getGameTime();
         return tick - lastStableConnectionTick <= TRANSIENT_DISCONNECT_GRACE_TICKS;
+    }
+
+    private static boolean allowsTransientDisconnectGrace(@Nullable ILinkStatus status) {
+        if (status == null || status.connected()) {
+            return true;
+        }
+        if (Status.NotPowered.is(status)) {
+            return false;
+        }
+        var description = status.statusDescription();
+        return description == null;
     }
 
     private void debugRepoState(String source) {

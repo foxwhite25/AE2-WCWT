@@ -1155,6 +1155,23 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         return false;
     }
 
+    public boolean isTypingInPatternManagementField() {
+        return isMeTerminalSearchFieldFocused()
+                || (patternManageSearchField != null && patternManageSearchField.isFocused())
+                || (patternManageMappingField != null && patternManageMappingField.isFocused());
+    }
+
+    private boolean isMeTerminalSearchFieldFocused() {
+        try {
+            Field sf = MEStorageScreen.class.getDeclaredField("searchField");
+            sf.setAccessible(true);
+            Object field = sf.get(this);
+            return field instanceof AETextField textField && textField.isFocused();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     private boolean triggerExtendedUiHotkey(IExtendedUIHost.ExtendedUIType type) {
         if (!isExtendedUIAvailable(type)) {
             return false;
@@ -3197,7 +3214,9 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     }
 
     private void renderBatchProcessingLabels(GuiGraphics guiGraphics, int color) {
-        drawScaledVerticalText(guiGraphics, "样板倍增器", 13, imageHeight - 136, color, 0.875F);
+        drawScaledVerticalText(guiGraphics,
+                Component.translatable("gui.wcwt.batch.pattern_multiplier").getString(),
+                13, imageHeight - 136, color, 0.875F);
         guiGraphics.drawString(font, Component.translatable("gui.wcwt.batch.item_substitution"),
                 108, imageHeight - 131, color, false);
         guiGraphics.drawString(font, Component.translatable("gui.wcwt.batch.fluid_substitution"),
@@ -4173,9 +4192,9 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                     : "gui.expatternprovider.show_slots");
         }
         if (inRect(relX, relY, patternManagementAutoUploadButton)) {
-            return Component.literal(patternManagementUploadEnabled
-                    ? "启用上传样板功能：开"
-                    : "启用上传样板功能：关");
+            return Component.translatable(patternManagementUploadEnabled
+                    ? "gui.wcwt.pattern_management.auto_upload.enabled"
+                    : "gui.wcwt.pattern_management.auto_upload.disabled");
         }
         if (inRect(relX, relY, patternManagementSearchModeButton)) {
             return Component.translatable("gui.wcwt.pattern_management.search_mode.tooltip",
