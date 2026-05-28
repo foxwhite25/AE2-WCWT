@@ -135,7 +135,10 @@ public final class WcwtJeiBookmarkKeys {
     }
 
     public static @Nullable GenericStack chooseBookmarkedStack(IRecipeSlotView slotView) {
-        Map<AEKey, Integer> priorities = getBookmarkPriorities();
+        return chooseBookmarkedStack(slotView, getBookmarkPriorities());
+    }
+
+    public static @Nullable GenericStack chooseBookmarkedStack(IRecipeSlotView slotView, Map<AEKey, Integer> priorities) {
         if (priorities.isEmpty()) {
             return null;
         }
@@ -157,11 +160,15 @@ public final class WcwtJeiBookmarkKeys {
     }
 
     public static ItemStack chooseBookmarkedItem(Ingredient ingredient, List<ItemStack> visibleAlternatives) {
+        return chooseBookmarkedItem(ingredient, visibleAlternatives, getBookmarkPriorities());
+    }
+
+    public static ItemStack chooseBookmarkedItem(Ingredient ingredient,
+                                                 List<ItemStack> visibleAlternatives,
+                                                 Map<AEKey, Integer> priorities) {
         if (ingredient.isEmpty()) {
             return ItemStack.EMPTY;
         }
-
-        Map<AEKey, Integer> priorities = getBookmarkPriorities();
         if (priorities.isEmpty()) {
             return ItemStack.EMPTY;
         }

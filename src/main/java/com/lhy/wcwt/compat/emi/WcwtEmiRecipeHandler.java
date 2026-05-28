@@ -217,7 +217,8 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
         EncodingMode mode = getTransferMode(recipe);
         WcwtManualWorkspaceRecipeSwitch.switchForTransfer(menu, mode);
         List<Widget> widgets = collectRecipeWidgets(recipe);
-        List<@Nullable GenericStack> inputs = collectEncodingInputs(menu, recipe, widgets);
+        var priorityContext = createPriorityContext(menu);
+        List<@Nullable GenericStack> inputs = collectEncodingInputs(priorityContext, recipe, widgets);
         List<@Nullable GenericStack> outputs = collectEncodingOutputs(recipe);
         if (inputs.stream().allMatch(Objects::isNull) && outputs.stream().allMatch(Objects::isNull)) {
             return false;
@@ -455,7 +456,7 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
         }
     }
 
-    private static List<@Nullable GenericStack> collectEncodingInputs(WirelessComprehensiveWorkTerminalMenu menu,
+    private static List<@Nullable GenericStack> collectEncodingInputs(WcwtIngredientPriorities.PriorityContext priorityContext,
                                                                       EmiRecipe recipe,
                                                                       List<Widget> widgets) {
         EncodingMode mode = getTransferMode(recipe);
@@ -466,7 +467,7 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
         for (int i = 0; i < count; i++) {
             SlotWidget slot = inputSlots.get(i);
             EmiIngredient ingredient = slot != null && slot.getStack() != null ? slot.getStack() : recipe.getInputs().get(i);
-            sparseInputs.add(toGenericStack(menu, ingredient));
+            sparseInputs.add(toGenericStack(priorityContext, ingredient));
         }
         if (mode == EncodingMode.PROCESSING) {
             return sparseInputs.stream().filter(Objects::nonNull).toList();
@@ -492,15 +493,16 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
 
     private static List<RequestedIngredient> collectRequestedIngredients(WirelessComprehensiveWorkTerminalMenu menu,
                                                                          EmiRecipe recipe) {
+        var priorityContext = createPriorityContext(menu);
         return recipe.getInputs().stream()
                 .filter(ingredient -> !ingredient.isEmpty())
-                .map(ingredient -> toRequestedIngredient(menu, ingredient))
+                .map(ingredient -> toRequestedIngredient(priorityContext, ingredient))
                 .filter(Objects::nonNull)
                 .toList();
     }
 
     @Nullable
-    private static RequestedIngredient toRequestedIngredient(WirelessComprehensiveWorkTerminalMenu menu,
+    private static RequestedIngredient toRequestedIngredient(WcwtIngredientPriorities.PriorityContext priorityContext,
                                                              EmiIngredient ingredient) {
         List<ItemStack> visibleAlternatives = new ArrayList<>();
         ItemStack displayed = ingredient.getEmiStacks().stream()
@@ -528,14 +530,15 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
             return null;
         }
         Ingredient wideIngredient = Ingredient.of(visibleAlternatives.stream().map(ItemStack::copy));
-        if (WcwtClientConfig.preferJeiBookmarksForPatternEncoding()) {
-            ItemStack bookmarked = WcwtJeiBookmarkKeys.chooseBookmarkedItem(wideIngredient, visibleAlternatives);
+        if (WcwtClientConfig.preferJeiBookmarksForPatternEncoding() && priorityContext.hasBookmarkPriorities()) {
+            ItemStack bookmarked = WcwtJeiBookmarkKeys.chooseBookmarkedItem(
+                    wideIngredient, visibleAlternatives, priorityContext.bookmarkPriorities());
             if (!bookmarked.isEmpty()) {
                 int count = Math.max(1, (int) Math.min(Integer.MAX_VALUE, ingredient.getAmount()));
                 return new RequestedIngredient(List.of(bookmarked), count);
             }
         }
-        ItemStack best = WcwtIngredientPriorities.chooseBestItem(menu, wideIngredient, visibleAlternatives);
+        ItemStack best = WcwtIngredientPriorities.chooseBestItem(priorityContext, wideIngredient, visibleAlternatives);
         if (best.isEmpty()) {
             return null;
         }
@@ -544,7 +547,7 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
     }
 
     @Nullable
-    private static GenericStack toGenericStack(@Nullable WirelessComprehensiveWorkTerminalMenu menu,
+    private static GenericStack toGenericStack(WcwtIngredientPriorities.PriorityContext priorityContext,
                                                EmiIngredient ingredient) {
         if (ingredient == null || ingredient.isEmpty()) {
             return null;
@@ -557,8 +560,8 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
                 candidates.add(candidate);
             }
         }
-        if (WcwtClientConfig.preferJeiBookmarksForPatternEncoding()) {
-            var priorities = WcwtJeiBookmarkKeys.getBookmarkPriorities();
+        if (WcwtClientConfig.preferJeiBookmarksForPatternEncoding() && priorityContext.hasBookmarkPriorities()) {
+            var priorities = priorityContext.bookmarkPriorities();
             if (!priorities.isEmpty()) {
                 GenericStack bookmarked = candidates.stream()
                         .filter(candidate -> candidate.what() != null && priorities.containsKey(candidate.what()))
@@ -569,11 +572,18 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
                 }
             }
         }
-        GenericStack best = WcwtIngredientPriorities.chooseBestGenericStack(menu, candidates);
+        GenericStack best = WcwtIngredientPriorities.chooseBestGenericStack(priorityContext, candidates);
         if (best != null) {
             return best;
         }
         return null;
+    }
+
+    private static WcwtIngredientPriorities.PriorityContext createPriorityContext(WirelessComprehensiveWorkTerminalMenu menu) {
+        Map<AEKey, Integer> bookmarkPriorities = WcwtClientConfig.preferJeiBookmarksForPatternEncoding()
+                ? WcwtJeiBookmarkKeys.getBookmarkPriorities()
+                : Map.of();
+        return WcwtIngredientPriorities.createContext(menu, bookmarkPriorities);
     }
 
     @Nullable

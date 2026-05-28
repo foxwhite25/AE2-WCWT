@@ -3631,6 +3631,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                 patternManageSearchField.setValue(patternManageMappingField.getValue().trim());
                 rebuildPatternManagementRows();
             }
+            clearPatternManagementMappingField();
             return true;
         }
         if (inRect(relX, relY, patternManagementReloadButton)) {
@@ -3643,6 +3644,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             playPatternManagementClickSound();
             refreshPatternProviders();
             sendPatternManagementAction(PatternManagementActionPacket.Action.DELETE_MAPPING, -1, -1);
+            clearPatternManagementMappingField();
             return true;
         }
         if (inRect(relX, relY, patternManagementCancelButton)) {
@@ -3724,11 +3726,20 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         switch (hit.button()) {
             case UPLOAD -> sendPatternManagementAction(PatternManagementActionPacket.Action.UPLOAD_CACHE_SLOT,
                     hit.entry().providerId(), -1);
-            case UI -> sendPatternManagementAction(PatternManagementActionPacket.Action.OPEN_PROVIDER_UI,
-                    hit.entry().providerId(), -1);
+            case UI -> {
+                clearPatternManagementMappingField();
+                sendPatternManagementAction(PatternManagementActionPacket.Action.OPEN_PROVIDER_UI,
+                        hit.entry().providerId(), -1);
+            }
             case HIGHLIGHT -> highlightPatternProvider(hit.entry());
         }
         return true;
+    }
+
+    private void clearPatternManagementMappingField() {
+        if (patternManageMappingField != null) {
+            patternManageMappingField.setValue("");
+        }
     }
 
     private void playPatternManagementClickSound() {

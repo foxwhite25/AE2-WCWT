@@ -24,6 +24,14 @@ public final class WcwtIngredientPriorities {
     private WcwtIngredientPriorities() {
     }
 
+    public record PriorityContext(Map<AEKey, Integer> ingredientPriorities, Map<AEKey, Integer> bookmarkPriorities) {
+        public static final PriorityContext EMPTY = new PriorityContext(Map.of(), Map.of());
+
+        public boolean hasBookmarkPriorities() {
+            return bookmarkPriorities != null && !bookmarkPriorities.isEmpty();
+        }
+    }
+
     public static Map<AEKey, Integer> getIngredientPriorities(@Nullable MEStorageMenu menu) {
         if (menu == null || menu.getClientRepo() == null) {
             return Map.of();
@@ -52,6 +60,11 @@ public final class WcwtIngredientPriorities {
         return result;
     }
 
+    public static PriorityContext createContext(@Nullable MEStorageMenu menu, Map<AEKey, Integer> bookmarkPriorities) {
+        return new PriorityContext(getIngredientPriorities(menu),
+                bookmarkPriorities == null || bookmarkPriorities.isEmpty() ? Map.of() : Map.copyOf(bookmarkPriorities));
+    }
+
     public static List<ItemStack> deduplicateItemAlternatives(List<ItemStack> alternatives) {
         if (alternatives == null || alternatives.isEmpty()) {
             return List.of();
@@ -68,14 +81,17 @@ public final class WcwtIngredientPriorities {
     }
 
     public static List<ItemStack> sortItemAlternatives(@Nullable MEStorageMenu menu, List<ItemStack> alternatives) {
+        return sortItemAlternatives(createContext(menu, Map.of()), alternatives);
+    }
+
+    public static List<ItemStack> sortItemAlternatives(PriorityContext context, List<ItemStack> alternatives) {
         List<ItemStack> sorted = new ArrayList<>(deduplicateItemAlternatives(alternatives));
         if (sorted.size() <= 1) {
             return sorted;
         }
 
-        var priorities = getIngredientPriorities(menu);
         sorted.sort(Comparator
-                .comparingInt((ItemStack stack) -> getPriority(priorities, stack)).reversed()
+                .comparingInt((ItemStack stack) -> getPriority(context.ingredientPriorities(), stack)).reversed()
                 .thenComparing(Comparator.comparingInt(WcwtPullIngredientOrdering::componentSpecificityRank).reversed())
                 .thenComparingLong(ItemStack::hashItemAndComponents));
         return sorted;
@@ -83,6 +99,11 @@ public final class WcwtIngredientPriorities {
 
     @Nullable
     public static GenericStack chooseBestGenericStack(@Nullable MEStorageMenu menu, List<GenericStack> candidates) {
+        return chooseBestGenericStack(createContext(menu, Map.of()), candidates);
+    }
+
+    @Nullable
+    public static GenericStack chooseBestGenericStack(PriorityContext context, List<GenericStack> candidates) {
         if (candidates == null || candidates.isEmpty()) {
             return null;
         }
@@ -90,10 +111,9 @@ public final class WcwtIngredientPriorities {
             return candidates.getFirst();
         }
 
-        var priorities = getIngredientPriorities(menu);
         return candidates.stream()
                 .max(Comparator
-                        .comparingInt((GenericStack stack) -> getPriority(priorities, stack.what()))
+                        .comparingInt((GenericStack stack) -> getPriority(context.ingredientPriorities(), stack.what()))
                         .thenComparingInt(WcwtPullIngredientOrdering::genericStackItemSpecificityRank))
                 .orElse(null);
     }
@@ -101,12 +121,18 @@ public final class WcwtIngredientPriorities {
     public static ItemStack chooseBestItem(@Nullable MEStorageMenu menu,
                                            Ingredient ingredient,
                                            List<ItemStack> visibleAlternatives) {
-        ItemStack bestNetworkIngredient = findBestNetworkIngredient(menu, ingredient);
+        return chooseBestItem(createContext(menu, Map.of()), ingredient, visibleAlternatives);
+    }
+
+    public static ItemStack chooseBestItem(PriorityContext context,
+                                           Ingredient ingredient,
+                                           List<ItemStack> visibleAlternatives) {
+        ItemStack bestNetworkIngredient = findBestNetworkIngredient(context, ingredient);
         if (!bestNetworkIngredient.isEmpty()) {
             return bestNetworkIngredient;
         }
 
-        for (var visibleAlternative : sortItemAlternatives(menu, visibleAlternatives)) {
+        for (var visibleAlternative : sortItemAlternatives(context, visibleAlternatives)) {
             if (ingredient.test(visibleAlternative)) {
                 return visibleAlternative.copy();
             }
@@ -117,8 +143,11 @@ public final class WcwtIngredientPriorities {
     }
 
     private static ItemStack findBestNetworkIngredient(@Nullable MEStorageMenu menu, Ingredient ingredient) {
-        var priorities = getIngredientPriorities(menu);
-        return priorities.entrySet().stream()
+        return findBestNetworkIngredient(createContext(menu, Map.of()), ingredient);
+    }
+
+    private static ItemStack findBestNetworkIngredient(PriorityContext context, Ingredient ingredient) {
+        return context.ingredientPriorities().entrySet().stream()
                 .filter(entry -> entry.getKey() instanceof AEItemKey itemKey && itemKey.matches(ingredient))
                 .max(Map.Entry.comparingByValue())
                 .map(Map.Entry::getKey)
