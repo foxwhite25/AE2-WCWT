@@ -645,9 +645,21 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                 Component.translatable("gui.ae2wtlib.magnet.text"), this::save);
         private final AECheckbox pickupToME = widgets.addCheckbox("pickupToME",
                 Component.translatable("gui.ae2wtlib.pickup_to_me.text"), this::save);
+        private final AECheckbox patternUploadFailFallbackToEditor = widgets.addCheckbox(
+                "patternUploadFailFallbackToEditor",
+                Component.translatable("wcwt.config.patternUploadFailFallbackToEditor"),
+                this::saveClientSettings);
+        private final AECheckbox patternMultiplierApplyToEditorProcessing = widgets.addCheckbox(
+                "patternMultiplierApplyToEditorProcessing",
+                Component.translatable("wcwt.config.patternMultiplierApplyToEditorProcessing"),
+                this::saveClientSettings);
+        private final AECheckbox autoSwitchManualWorkspaceOnRecipeTransfer = widgets.addCheckbox(
+                "autoSwitchManualWorkspaceOnRecipeTransfer",
+                Component.translatable("wcwt.config.autoSwitchManualWorkspaceOnRecipeTransfer"),
+                this::saveClientSettings);
 
         WcwtWirelessTerminalSettingsSubScreen(WirelessComprehensiveWorkTerminalScreen parent) {
-            super(parent, "/screens/wtlib/wireless_terminal_settings.json");
+            super(parent, "/screens/wcwt/wireless_terminal_settings.json");
             widgets.add("back", new TabButton(Icon.BACK, getMenu().getHost().getMainMenuIcon().getHoverName(),
                     btn -> returnToParent()));
 
@@ -658,6 +670,11 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             restock.setSelected(stack.getOrDefault(AE2wtlibComponents.RESTOCK, false));
             magnet.setSelected(readMagnetSetting(stack, "magnet"));
             pickupToME.setSelected(readMagnetSetting(stack, "pickupToME"));
+            patternUploadFailFallbackToEditor.setSelected(WcwtClientConfig.patternUploadFailFallbackToEditor());
+            patternMultiplierApplyToEditorProcessing
+                    .setSelected(WcwtClientConfig.patternMultiplierApplyToEditorProcessing());
+            autoSwitchManualWorkspaceOnRecipeTransfer
+                    .setSelected(WcwtClientConfig.autoSwitchManualWorkspaceOnRecipeTransfer());
             refreshMagnetSettingsAvailability(stack);
         }
 
@@ -687,6 +704,16 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             PacketDistributor.sendToServer(new WirelessSettingsPacket(
                     pickBlock.isSelected(), restock.isSelected(), magnet.isSelected(), pickupToME.isSelected(),
                     craftIfMissing.isSelected()));
+        }
+
+        private void saveClientSettings() {
+            WcwtClientConfig.PATTERN_UPLOAD_FAIL_FALLBACK_TO_EDITOR
+                    .set(patternUploadFailFallbackToEditor.isSelected());
+            WcwtClientConfig.PATTERN_MULTIPLIER_APPLY_TO_EDITOR_PROCESSING
+                    .set(patternMultiplierApplyToEditorProcessing.isSelected());
+            WcwtClientConfig.AUTO_SWITCH_MANUAL_WORKSPACE_ON_RECIPE_TRANSFER
+                    .set(autoSwitchManualWorkspaceOnRecipeTransfer.isSelected());
+            WcwtClientConfig.SPEC.save();
         }
 
         @SuppressWarnings({"rawtypes", "unchecked"})
@@ -3760,14 +3787,44 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         mc.getSoundManager().play(SimpleSoundInstance.forUI(sound, pitch));
     }
 
-    /** 与 {@link PatternManagementActionPacket} 中列表顺序一致的有效 1-based id，否则由服务端回退第一个供应器。 */
+    /**
+     * 与 {@link PatternManagementActionPacket} 中列表顺序一致的有效 1-based id。
+     *
+     * <p>优先使用当前选中的供应器；若未显式选中，则回退到当前聚焦/高亮的供应器；
+     * 再回退到样板管理区当前滚动页里首个可见的供应器，避免服务端默认塞到排序后的第一个供应器。
+     */
     private long quickInsertTargetProviderId() {
-        if (selectedPatternProviderId <= 0) {
+        if (containsPatternProvider(selectedPatternProviderId)) {
+            return selectedPatternProviderId;
+        }
+        if (containsPatternProvider(focusedPatternProviderId)) {
+            return focusedPatternProviderId;
+        }
+        return getFirstVisiblePatternProviderId();
+    }
+
+    private boolean containsPatternProvider(long providerId) {
+        return providerId > 0 && patternProviders.stream().anyMatch(e -> e.providerId() == providerId);
+    }
+
+    private long getFirstVisiblePatternProviderId() {
+        if (patternManagementRows.isEmpty() || patternManagementPage.height() <= 0) {
             return -1L;
         }
-        return patternProviders.stream().anyMatch(e -> e.providerId() == selectedPatternProviderId)
-                ? selectedPatternProviderId
-                : -1L;
+
+        int visibleRows = Math.max(1, patternManagementPage.height() / PATTERN_MANAGEMENT_ROW_H);
+        int scroll = patternManagementScrollbar != null ? patternManagementScrollbar.getCurrentScroll() : 0;
+        int end = Math.min(patternManagementRows.size(), scroll + visibleRows);
+        for (int rowIndex = scroll; rowIndex < end; rowIndex++) {
+            var row = patternManagementRows.get(rowIndex);
+            if (row instanceof PatternManagementHeaderRow header) {
+                return header.entry().providerId();
+            }
+            if (row instanceof PatternManagementSlotsRow slotsRow) {
+                return slotsRow.entry().providerId();
+            }
+        }
+        return -1L;
     }
 
     private void sendPatternManagementAction(PatternManagementActionPacket.Action action, long providerId, int cacheSlot) {

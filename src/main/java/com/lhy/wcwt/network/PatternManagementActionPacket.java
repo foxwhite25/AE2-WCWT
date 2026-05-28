@@ -180,12 +180,12 @@ public record PatternManagementActionPacket(Action action,
         }
 
         PatternContainer provider = null;
-        String patternSearchText = PatternUploadMetadata.getProviderSearchText(sourceStack);
-        if (patternSearchText != null) {
-            provider = findMatchingProviderBySearchText(providers, patternSearchText);
+        if (preferredProviderId > 0) {
+            provider = getProviderByOrdinal(providers, preferredProviderId);
         }
-        if (provider == null && preferredProviderId > 0) {
-            provider = getProviderByOrdinal(player, preferredProviderId);
+        String patternSearchText = PatternUploadMetadata.getProviderSearchText(sourceStack);
+        if (provider == null && patternSearchText != null) {
+            provider = findMatchingProviderBySearchText(providers, patternSearchText);
         }
         if (provider == null) {
             provider = providers.get(0);

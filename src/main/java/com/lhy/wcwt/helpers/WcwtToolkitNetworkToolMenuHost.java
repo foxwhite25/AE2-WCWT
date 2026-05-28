@@ -99,6 +99,7 @@ public class WcwtToolkitNetworkToolMenuHost extends NetworkToolMenuHost<NetworkT
             return;
         }
         toolkitInventoryDirty = true;
+        flushDirtyToolInventory();
         ticksUntilFlush = FLUSH_INTERVAL_TICKS;
     }
 

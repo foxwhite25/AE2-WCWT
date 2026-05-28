@@ -273,7 +273,8 @@ public class WcwtRecipeTransferHandler
             }
             return resolved;
         }
-        return collectStacksPreservingSlots(null, recipeSlots, RecipeIngredientRole.OUTPUT, Integer.MAX_VALUE);
+        return collectStacksPreservingSlots(WcwtIngredientPriorities.PriorityContext.EMPTY,
+                recipeSlots, RecipeIngredientRole.OUTPUT, Integer.MAX_VALUE);
     }
 
     @Nullable
