@@ -554,10 +554,15 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
         }
 
         List<GenericStack> candidates = new ArrayList<>();
+        List<ItemStack> itemCandidates = new ArrayList<>();
         for (var emiStack : ingredient.getEmiStacks()) {
             GenericStack candidate = toGenericStack(emiStack, ingredient.getAmount());
             if (candidate != null) {
                 candidates.add(candidate);
+            }
+            ItemStack itemStack = emiStack.getItemStack();
+            if (!itemStack.isEmpty()) {
+                itemCandidates.add(itemStack.copy());
             }
         }
         if (WcwtClientConfig.preferJeiBookmarksForPatternEncoding() && priorityContext.hasBookmarkPriorities()) {
@@ -572,11 +577,15 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
                 }
             }
         }
-        GenericStack best = WcwtIngredientPriorities.chooseBestGenericStack(priorityContext, candidates);
-        if (best != null) {
-            return best;
+        if (!itemCandidates.isEmpty()) {
+            ItemStack best = WcwtIngredientPriorities.chooseBestItem(priorityContext,
+                    Ingredient.of(itemCandidates.stream().map(ItemStack::copy)), itemCandidates);
+            if (!best.isEmpty()) {
+                return GenericStack.fromItemStack(best.copyWithCount(
+                        Math.max(1, (int) Math.min(Integer.MAX_VALUE, ingredient.getAmount()))));
+            }
         }
-        return null;
+        return candidates.isEmpty() ? null : candidates.getFirst();
     }
 
     private static WcwtIngredientPriorities.PriorityContext createPriorityContext(WirelessComprehensiveWorkTerminalMenu menu) {

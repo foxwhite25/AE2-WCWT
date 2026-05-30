@@ -316,17 +316,22 @@ public class WcwtRecipeTransferHandler
             return displayed;
         }
 
-        List<GenericStack> fallbackCandidates = slotView.getAllIngredients()
-                .limit(8)
+        List<ItemStack> fallbackCandidates = slotView.getItemStacks()
+                .filter(stack -> !stack.isEmpty())
+                .map(ItemStack::copy)
+                .toList();
+        if (!fallbackCandidates.isEmpty()) {
+            ItemStack best = WcwtIngredientPriorities.chooseBestItem(priorityContext,
+                    Ingredient.of(fallbackCandidates.stream().map(ItemStack::copy)), fallbackCandidates);
+            if (!best.isEmpty()) {
+                return GenericStack.fromItemStack(best.copyWithCount(1));
+            }
+        }
+        return slotView.getAllIngredients()
                 .map(WcwtRecipeTransferHandler::toGenericStack)
                 .filter(Objects::nonNull)
-                .toList();
-        if (fallbackCandidates.isEmpty()) {
-            return null;
-        }
-
-        GenericStack best = WcwtIngredientPriorities.chooseBestGenericStack(priorityContext, fallbackCandidates);
-        return best != null ? best : fallbackCandidates.getFirst();
+                .findFirst()
+                .orElse(null);
     }
 
     private static WcwtIngredientPriorities.PriorityContext createPriorityContext(WirelessComprehensiveWorkTerminalMenu menu) {
