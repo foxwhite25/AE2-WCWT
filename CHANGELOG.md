@@ -1,5 +1,65 @@
 # Changelog
 
+## v1.2.1
+
+### English
+
+#### New Features
+
+1. Added a hotkey to quickly toggle crafting grid lock while the terminal is open or when JEI/EMI is opened from the terminal.
+2. Added an option to embed the toolkit into the pattern management area, configurable in the Wireless Terminal Settings screen.
+3. Added a favorite items priority display feature to the left terminal button area. When enabled, favorited items are pinned to the top. Press `A` on an item in the terminal storage area to favorite it, and the key can be changed in key bindings.
+
+#### Fixes
+
+1. Fixed a bug where pulling processing recipe ingredients did not automatically return existing crafting grid items into the ME network first.
+2. Fixed a bug where consuming a blank pattern could lead to a gray-screen ME view after reopening the terminal.
+3. Fixed unreasonable priority behavior during recipe pulling.
+4. Adjusted several texture layering issues.
+5. Fixed the crafting-pin background not rendering completely.
+6. Fixed terminal open/close hotkeys still triggering while typing in the two pattern management input fields.
+7. Fixed a bug where some recipes could not be encoded into patterns.
+8. Fixed a middle-click quantity adjustment conflict caused by sorting mod button injection in the pattern encoding area.
+9. Fixed incorrect slot order when EMI pulled crafting recipe ingredients.
+10. Fixed Ctrl + left click not auto-crafting missing ingredients under EMI.
+11. Fixed the "store main hand item into the ME network" feature not working.
+12. Fixed missing auto-restock behavior in manual anvil mode within the manual crafting area.
+13. Fixed abnormal experience cost behavior, missing text prompt, and mismatched text color in manual anvil mode.
+14. Fixed a bug where, with certain sorting mods installed, shift-moving items from the ME network could remove the upgrade card from the first upgrade slot.
+
+#### Improvements
+
+1. Improved auto-restock behavior in smithing and anvil modes to better align with vanilla AE restocking logic.
+
+### 中文
+
+#### 新增
+
+1. 新增快捷键快速切换合成网格锁定状态功能，可在打开终端时或从终端打开 JEI/EMI 时使用；
+2. 新增工具包可嵌入到样板管理区功能，可在“无线终端设置”里进行开关；
+3. 在终端左侧按钮区新增“收藏物品优先显示功能”，开启后可置顶显示已收藏物品，对着仓库区物品按 `A` 键可收藏，可在按键绑定中更改；
+
+#### 修复
+
+1. 修复拉取处理配方物品时不自动将合成网格已有物品放入 ME 网络的 bug；
+2. 修复消耗空白样板再次打开终端后，ME 网络出现灰屏的 bug；
+3. 修复拉取配方时优先级不合理的问题；
+4. 调整部分贴图显示层级不合理问题；
+5. 修复合成置顶底图显示不完全的问题；
+6. 修复样板管理区两个输入框输入时终端开启/关闭快捷键仍生效的 bug；
+7. 修复部分配方无法编码样板的 bug；
+8. 修复样板编码区鼠标中键调整数量时整理模组按钮注入的 bug；
+9. 修复 EMI 拉取合成配方时顺序错乱的 bug；
+10. 修复 EMI 环境下 `Ctrl + 左键` 无法自动合成缺失物品的 bug；
+11. 修复“把主手物品放入 ME 网络”功能不生效的 bug；
+12. 修复手动合成区铁砧模式下无法自动补料的 bug；
+13. 修复手动合成区铁砧模式下经验消耗不正常、文字提示缺失、文本颜色不匹配的 bug；
+14. 修复在安装某类整理模组时，`Shift` 快速移动网络里的物品会将升级槽中第一个槽位的升级卡卸下的 bug；
+
+#### 优化
+
+1. 优化锻造台模式和铁砧模式下的自动补料体验，与原版 AE 补料逻辑对齐。
+
 ## v1.2.0
 
 ### English
