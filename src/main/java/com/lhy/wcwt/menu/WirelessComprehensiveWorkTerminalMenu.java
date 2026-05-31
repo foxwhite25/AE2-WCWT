@@ -891,7 +891,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
                 for (int i = 0; i < 3; i++) {
                     inv.setItemDirect(i, this.inputSlots.getItem(i).copy());
                 }
-                restockManualSmithingInputs(inv, before);
+                restockManualWorkspaceInputsAeStyle(inv, before);
                 this.syncFrom(inv);
             }
         }
@@ -933,18 +933,24 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         }
 
         private void takeResult(Player player, ItemStack stack) {
-            var resultSlot = this.getSlot(2);
-            this.resultSlots.setItem(0, stack.copy());
-            resultSlot.remove(stack.getCount());
-            resultSlot.onTake(player, stack);
+            var inv = menuHost == null ? null
+                    : menuHost.getSubInventory(WirelessComprehensiveWorkTerminalMenuHost.INV_MANUAL_ANVIL);
+            ItemStack[] before = new ItemStack[2];
+            if (inv != null) {
+                for (int i = 0; i < before.length; i++) {
+                    before[i] = inv.getStackInSlot(i).copy();
+                }
+            }
+            // 直接走 AnvilMenu.onTake，确保原版经验消耗与输入扣除逻辑生效。
+            this.onTake(player, stack);
             player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                     SoundEvents.ANVIL_USE, SoundSource.BLOCKS, 1.0F,
                     player.level().random.nextFloat() * 0.1F + 0.9F);
-            var inv = menuHost == null ? null
-                    : menuHost.getSubInventory(WirelessComprehensiveWorkTerminalMenuHost.INV_MANUAL_ANVIL);
             if (inv != null) {
                 inv.setItemDirect(0, this.inputSlots.getItem(0).copy());
                 inv.setItemDirect(1, this.inputSlots.getItem(1).copy());
+                restockManualWorkspaceInputsAeStyle(inv, before);
+                this.syncFrom(inv.getStackInSlot(0), inv.getStackInSlot(1), manualAnvilName);
             }
             manualAnvilCost = this.getCost();
         }
@@ -2336,34 +2342,32 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         broadcastChanges();
     }
 
-    private void restockManualSmithingInputs(InternalInventory inventory, ItemStack[] before) {
+    private void restockManualWorkspaceInputsAeStyle(InternalInventory inventory, ItemStack[] before) {
         if (isClientSide() || menuHost == null || before == null) {
             return;
         }
         var filter = ViewCellItem.createItemFilter(getViewCells());
-        for (int slot = 0; slot < Math.min(3, before.length); slot++) {
+        for (int slot = 0; slot < Math.min(inventory.size(), before.length); slot++) {
             ItemStack previous = before[slot];
             if (previous == null || previous.isEmpty()) {
                 continue;
             }
             ItemStack current = inventory.getStackInSlot(slot);
-            if (!current.isEmpty() && !ItemStack.isSameItemSameComponents(previous, current)) {
-                continue;
-            }
-            int missing = previous.getCount() - current.getCount();
-            if (missing <= 0) {
+            // 对齐 AE 工作台结果槽逻辑：
+            // 只有当本次操作把该输入槽真正耗空时，才从网络补回 1 个相同材料；
+            // 不维持输入槽原有堆叠数量。
+            if (!current.isEmpty()) {
                 continue;
             }
             AEItemKey key = AEItemKey.of(previous);
             if (key == null || filter != null && !filter.isListed(key)) {
                 continue;
             }
-            long extracted = StorageHelper.poweredExtraction(energySource, storage, key, missing, getActionSource());
+            long extracted = StorageHelper.poweredExtraction(energySource, storage, key, 1, getActionSource());
             if (extracted <= 0) {
                 continue;
             }
-            ItemStack remainder = inventory.insertItem(slot, key.toStack((int) Math.min(extracted, Integer.MAX_VALUE)),
-                    false);
+            ItemStack remainder = inventory.insertItem(slot, key.toStack(1), false);
             if (!remainder.isEmpty()) {
                 StorageHelper.poweredInsert(energySource, storage, key, remainder.getCount(), getActionSource());
             }
@@ -2854,7 +2858,13 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     private ItemStack wcwtQuickMoveStackUnchecked(Player player, int slotIndex) {
         if (slotIndex >= 0 && slotIndex < slots.size()) {
             Slot sourceSlot = slots.get(slotIndex);
-            if (isManualResultSlot(sourceSlot)) {
+            if (sourceSlot == manualAnvilResultSlot) {
+                ItemStack result = quickMoveManualAnvilResult(player);
+                updateManualWorkspaceResults();
+                broadcastChanges();
+                return result;
+            }
+            if (sourceSlot == manualSmithingResultSlot) {
                 ItemStack result = super.quickMoveStack(player, slotIndex);
                 updateManualWorkspaceResults();
                 broadcastChanges();
@@ -2891,6 +2901,22 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             }
         }
         return super.quickMoveStack(player, slotIndex);
+    }
+
+    private ItemStack quickMoveManualAnvilResult(Player player) {
+        if (manualAnvilResultSlot == null || !manualAnvilResultSlot.hasItem() || !manualAnvilResultSlot.mayPickup(player)) {
+            return ItemStack.EMPTY;
+        }
+
+        ItemStack resultStack = manualAnvilResultSlot.getItem().copy();
+        ItemStack toInsert = resultStack.copy();
+        int playerInventoryStart = getPlayerInventoryStartMenuIndex();
+        if (playerInventoryStart < 0 || !moveItemStackTo(toInsert, playerInventoryStart, slots.size(), true)) {
+            return ItemStack.EMPTY;
+        }
+
+        manualAnvilBridge.takeResult(player, resultStack.copy());
+        return resultStack;
     }
 
     private ItemStack tryMoveStackToCurioSlot(Player player, Slot sourceSlot, ItemStack sourceStack) {

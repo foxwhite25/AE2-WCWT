@@ -3206,16 +3206,21 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             return;
         }
         int cost = menu.getManualAnvilCost();
-        if (cost <= 0 || !hasManualAnvilResult()) {
+        if (cost <= 0) {
             return;
         }
 
-        boolean tooExpensive = cost >= ANVIL_TOO_EXPENSIVE_COST
+        boolean hasResult = hasManualAnvilResult();
+        boolean mayPickup = mayPickupManualAnvilResult();
+        boolean tooExpensive = !hasResult && cost >= ANVIL_TOO_EXPENSIVE_COST
                 && (minecraft == null || minecraft.player == null || !minecraft.player.getAbilities().instabuild);
+        if (!tooExpensive && !hasResult) {
+            return;
+        }
         Component text = tooExpensive
                 ? Component.translatable("container.repair.expensive")
                 : Component.translatable("container.repair.cost", cost);
-        int color = tooExpensive || !mayPickupManualAnvilResult() ? 0xFF6060 : 0x80FF20;
+        int color = (tooExpensive || !mayPickup) ? 0xFF6060 : 0x80FF20;
         var rect = mainLayout.widget("manual_anvil_cost",
                 new ExtendedPanelLayout.Rect(79, imageHeight - 194, 0, 0), imageWidth, imageHeight);
         guiGraphics.drawString(font, text, rect.left(), rect.top(), color);
