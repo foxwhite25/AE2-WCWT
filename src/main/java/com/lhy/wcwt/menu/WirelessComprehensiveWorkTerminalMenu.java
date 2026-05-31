@@ -12,6 +12,7 @@ import appeng.api.storage.StorageHelper;
 import appeng.api.storage.cells.ICellWorkbenchItem;
 import appeng.core.network.serverbound.FillCraftingGridFromRecipePacket;
 import appeng.core.definitions.AEItems;
+import appeng.helpers.InventoryAction;
 import appeng.helpers.patternprovider.PatternContainer;
 import appeng.items.storage.ViewCellItem;
 import appeng.menu.MenuOpener;
@@ -101,6 +102,8 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     private static final boolean DEBUG_PERF = Boolean.getBoolean("wcwt.debug.perf");
     private static final boolean DEBUG_BLANK_PATTERN_SYNC =
             Boolean.getBoolean("wcwt.debug.blankPatternSync");
+    private static final boolean DEBUG_QUICKMOVE_UPGRADE =
+            Boolean.getBoolean("wcwt.debug.quickMoveUpgrade");
     private static final long PERF_LOG_THRESHOLD_NS = 1_000_000L;
     private static final int PATTERN_PROVIDER_SYNC_INTERVAL_TICKS = 20;
     private static final long PATTERN_PROVIDER_SYNC_SUBSCRIPTION_TICKS = 100L;
@@ -1018,6 +1021,16 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
 
     public int getManualAnvilCost() {
         return isClientSide() ? syncedManualAnvilCost : manualAnvilCost;
+    }
+
+    @Override
+    public void doAction(ServerPlayer player, InventoryAction action, int slot, long id) {
+        if (DEBUG_QUICKMOVE_UPGRADE) {
+            Slot targetSlot = slot >= 0 && slot < this.slots.size() ? this.getSlot(slot) : null;
+            logQuickMoveUpgrade("doAction player={}, action={}, slot={}, id={}, target={}",
+                    player.getScoreboardName(), action, slot, id, describeSlot(targetSlot));
+        }
+        super.doAction(player, action, slot, id);
     }
 
     @Override
@@ -2689,6 +2702,37 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         }
     }
 
+    private static void logQuickMoveUpgrade(String message, Object... args) {
+        if (DEBUG_QUICKMOVE_UPGRADE) {
+            com.lhy.wcwt.WcwtMod.LOGGER.info("WCWT quickMove upgrade debug: " + message, args);
+        }
+    }
+
+    private boolean isUpgradeLikeSemantic(@Nullable appeng.menu.SlotSemantic semantic) {
+        return semantic == SlotSemantics.UPGRADE
+                || semantic == AE2wtlibSlotSemantics.SINGULARITY
+                || semantic == WcwtSlotSemantics.WCWT_CELL_UPGRADE;
+    }
+
+    private String describeSlot(@Nullable Slot slot) {
+        if (slot == null) {
+            return "<null>";
+        }
+        int menuPos = this.slots.indexOf(slot);
+        var semantic = getSlotSemantic(slot);
+        String semanticName = semantic == null ? "<null>" : semantic.toString();
+        return "menuPos=" + menuPos + ",slotIdx=" + slot.index + ",semantic=" + semanticName
+                + ",stack=" + describeStack(slot.getItem());
+    }
+
+    private static String describeStack(@Nullable ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return "<empty>";
+        }
+        var key = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem());
+        return stack.getCount() + "x" + (key == null ? stack.getItem().toString() : key.toString());
+    }
+
     private void updateStonecuttingRecipes() {
         stonecuttingRecipes.clear();
         if (patternEncodingLogic == null
@@ -2858,6 +2902,17 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     private ItemStack wcwtQuickMoveStackUnchecked(Player player, int slotIndex) {
         if (slotIndex >= 0 && slotIndex < slots.size()) {
             Slot sourceSlot = slots.get(slotIndex);
+            if (DEBUG_QUICKMOVE_UPGRADE && sourceSlot.hasItem()) {
+                logQuickMoveUpgrade("start player={}, slotIndex={}, source={}",
+                        player.getScoreboardName(), slotIndex, describeSlot(sourceSlot));
+            }
+            // 禁止从升级类槽位 shift 快速移出物品。原版客户端 shift 点击只发包，
+            // 而像 Inventory Essentials 这类整理/批量转移模组会程序化地遍历槽位直接调用
+            // quickMoveStack，从而把升级卡误当成可批量转移的物品掏出来。在服务端源头拦截，
+            // 不影响往升级槽内 shift 放入卡片（那走的是 canMoveTo 目标判定）。
+            if (isUpgradeLikeSemantic(getSlotSemantic(sourceSlot))) {
+                return ItemStack.EMPTY;
+            }
             if (sourceSlot == manualAnvilResultSlot) {
                 ItemStack result = quickMoveManualAnvilResult(player);
                 updateManualWorkspaceResults();
@@ -3027,10 +3082,18 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     @Override
     protected boolean isValidQuickMoveDestination(Slot candidateSlot, ItemStack stackToMove, boolean fromPlayerSide) {
         if (!super.isValidQuickMoveDestination(candidateSlot, stackToMove, fromPlayerSide)) {
+            if (DEBUG_QUICKMOVE_UPGRADE && isUpgradeLikeSemantic(getSlotSemantic(candidateSlot))) {
+                logQuickMoveUpgrade("reject(super) fromPlayerSide={}, moving={}, candidate={}",
+                        fromPlayerSide, describeStack(stackToMove), describeSlot(candidateSlot));
+            }
             return false;
         }
 
         if (menuHost == null) {
+            if (DEBUG_QUICKMOVE_UPGRADE && isUpgradeLikeSemantic(getSlotSemantic(candidateSlot))) {
+                logQuickMoveUpgrade("accept(noHost) fromPlayerSide={}, moving={}, candidate={}",
+                        fromPlayerSide, describeStack(stackToMove), describeSlot(candidateSlot));
+            }
             return true;
         }
 
@@ -3044,6 +3107,10 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             return false;
         }
 
+        if (DEBUG_QUICKMOVE_UPGRADE && isUpgradeLikeSemantic(semantic)) {
+            logQuickMoveUpgrade("accept fromPlayerSide={}, moving={}, candidate={}",
+                    fromPlayerSide, describeStack(stackToMove), describeSlot(candidateSlot));
+        }
         return true;
     }
 
@@ -3206,6 +3273,9 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     @Override
     public void onSlotChange(Slot slot) {
         super.onSlotChange(slot);
+        if (DEBUG_QUICKMOVE_UPGRADE && isUpgradeLikeSemantic(getSlotSemantic(slot))) {
+            logQuickMoveUpgrade("upgrade slot changed slot={}", describeSlot(slot));
+        }
         if (slot == manualSmithingTemplateSlot
                 || slot == manualSmithingBaseSlot
                 || slot == manualSmithingAdditionSlot

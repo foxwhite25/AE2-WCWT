@@ -111,6 +111,7 @@ import com.google.common.primitives.Longs;
 public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<WirelessComprehensiveWorkTerminalMenu> {
     private static final String STYLE_PATH = "/screens/wcwt/wireless_comprehensive_work_terminal.json";
     private static final boolean DEBUG_PERF = Boolean.getBoolean("wcwt.debug.perf");
+    private static final boolean DEBUG_SLOT_HIT = Boolean.getBoolean("wcwt.debug.slotHit");
     private static final long PERF_LOG_THRESHOLD_NS = 1_000_000L;
     private static final long PATTERN_PROVIDER_REFRESH_DEBOUNCE_MS = 180L;
     private static final long PATTERN_PROVIDER_SUBSCRIPTION_KEEPALIVE_MS = 3_000L;
@@ -3738,6 +3739,9 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (DEBUG_SLOT_HIT) {
+            logSlotHitDebug(mouseX, mouseY, button, "before");
+        }
         if (this.minecraft.options.keyPickItem.matchesMouse(button)) {
             var slot = getSlotAt(mouseX, mouseY);
             if (menu.canModifyAmountForSlot(slot)) {
@@ -3852,15 +3856,23 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             }
         }
         
-        return super.mouseClicked(mouseX, mouseY, button);
+        boolean handled = super.mouseClicked(mouseX, mouseY, button);
+        if (DEBUG_SLOT_HIT) {
+            logSlotHitDebug(mouseX, mouseY, button, handled ? "after-handled" : "after-pass");
+        }
+        return handled;
     }
 
     @Nullable
     private Slot getSlotAt(double mouseX, double mouseY) {
         int relX = (int) Math.round(mouseX - leftPos);
         int relY = (int) Math.round(mouseY - topPos);
-        for (Slot slot : menu.slots) {
+        for (int menuPos = 0; menuPos < menu.slots.size(); menuPos++) {
+            Slot slot = menu.slots.get(menuPos);
             if (!slot.isActive()) {
+                continue;
+            }
+            if (shouldIgnoreGhostSlot(menuPos, slot, relX, relY)) {
                 continue;
             }
             if (relX >= slot.x && relX < slot.x + 16 && relY >= slot.y && relY < slot.y + 16) {
@@ -3868,6 +3880,61 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             }
         }
         return null;
+    }
+
+    private boolean shouldIgnoreGhostSlot(int menuPos, Slot slot, int relX, int relY) {
+        var semantic = menu.getSlotSemantic(slot);
+        if (semantic != null) {
+            return false;
+        }
+        if (menuPos == slot.index) {
+            return false;
+        }
+        if (upgradesPanel == null) {
+            return false;
+        }
+        var bounds = upgradesPanel.getBounds();
+        int panelLeft = bounds.getX();
+        int panelTop = bounds.getY();
+        int panelRight = panelLeft + bounds.getWidth();
+        int panelBottom = panelTop + bounds.getHeight();
+        boolean insideUpgradePanel = relX >= panelLeft && relX < panelRight && relY >= panelTop && relY < panelBottom;
+        return !insideUpgradePanel;
+    }
+
+    private void logSlotHitDebug(double mouseX, double mouseY, int button, String stage) {
+        Slot slot = getSlotAt(mouseX, mouseY);
+        int menuPos = slot == null ? -1 : menu.slots.indexOf(slot);
+        var semantic = slot == null ? null : menu.getSlotSemantic(slot);
+        String semanticName = semantic == null ? "<null>" : semantic.toString();
+        String slotDesc = slot == null
+                ? "<none>"
+                : "menuPos=" + menuPos + ",slotIdx=" + slot.index + ",x=" + slot.x + ",y=" + slot.y + ",semantic=" + semanticName
+                        + ",stack=" + describeSlotHitStack(slot.getItem());
+        String upgradesBounds = upgradesPanel == null
+                ? "<none>"
+                : "x=" + upgradesPanel.getBounds().getX()
+                        + ",y=" + upgradesPanel.getBounds().getY()
+                        + ",w=" + upgradesPanel.getBounds().getWidth()
+                        + ",h=" + upgradesPanel.getBounds().getHeight();
+        WcwtMod.LOGGER.info(
+                "WCWT slot hit debug: stage={}, mouseX={}, mouseY={}, relX={}, relY={}, button={}, slot={}, upgradesBounds={}",
+                stage,
+                String.format(java.util.Locale.ROOT, "%.2f", mouseX),
+                String.format(java.util.Locale.ROOT, "%.2f", mouseY),
+                String.format(java.util.Locale.ROOT, "%.2f", mouseX - leftPos),
+                String.format(java.util.Locale.ROOT, "%.2f", mouseY - topPos),
+                button,
+                slotDesc,
+                upgradesBounds);
+    }
+
+    private static String describeSlotHitStack(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return "<empty>";
+        }
+        var key = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem());
+        return stack.getCount() + "x" + (key == null ? stack.getItem().toString() : key.toString());
     }
 
     private static class WcwtSetProcessingPatternAmountSubScreen extends
