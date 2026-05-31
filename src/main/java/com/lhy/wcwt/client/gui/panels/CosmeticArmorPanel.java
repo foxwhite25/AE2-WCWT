@@ -61,6 +61,9 @@ public class CosmeticArmorPanel extends ExtendedUIPanel {
         // 渲染显示开关图标
         // 暗图标位置: (192, 0) 大小5x5
         // 亮图标位置: (208, 0) 大小5x5
+        var poseStack = guiGraphics.pose();
+        poseStack.pushPose();
+        poseStack.translate(0, 0, 300);
         for (int i = 0; i < 4; i++) {
             int iconX = x + TOGGLE_X + i * SLOT_SPACING;
             int iconY = y + TOGGLE_Y;
@@ -68,6 +71,7 @@ public class CosmeticArmorPanel extends ExtendedUIPanel {
 
             guiGraphics.blit(STATES_TEXTURE, iconX, iconY, texX, 0, 5, 5, 256, 256);
         }
+        poseStack.popPose();
     }
 
     @Override

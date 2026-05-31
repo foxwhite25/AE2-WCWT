@@ -762,6 +762,13 @@
       "bottom": 83,
       "height": 71
     },
+    "pinned_row_overlay": {
+      "$comment": "主仓库区“合成完成置顶”整行底图覆盖层。",
+      "left": 7,
+      "top": 17,
+      "width": 324,
+      "height": 18
+    },
     "management_page": {
       "$comment": "样板管理区主区域；第9列槽可在宽度不足18时仅绘制左侧像素（见 Java）。",
       "left": 176,

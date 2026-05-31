@@ -45,6 +45,7 @@ public class ModClientSetup {
         event.register(WcwtKeybindings.OPEN_TOOLKIT);
         event.register(WcwtKeybindings.OPEN_RESONATING_LIGHTNING_PATTERN_CODING);
         event.register(WcwtKeybindings.TOGGLE_CRAFTING_GRID_LOCK);
+        event.register(WcwtKeybindings.TOGGLE_FAVORITE_ITEM);
     }
 
     @SubscribeEvent
@@ -64,6 +65,11 @@ public class ModClientSetup {
         }
         if (!screen.isTypingInPatternManagementField()
                 && screen.handleExtendedUiHotkey(event.getKeyCode(), event.getScanCode())) {
+            event.setCanceled(true);
+            return;
+        }
+        if (WcwtKeybindings.TOGGLE_FAVORITE_ITEM.matches(event.getKeyCode(), event.getScanCode())
+                && screen.toggleFavoriteForHoveredRepoSlot()) {
             event.setCanceled(true);
             return;
         }

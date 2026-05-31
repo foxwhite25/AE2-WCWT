@@ -6,6 +6,7 @@ import appeng.client.gui.me.common.ClientDisplaySlot;
 import appeng.client.gui.me.common.RepoSlot;
 import appeng.client.gui.me.common.StackSizeRenderer;
 import appeng.client.gui.me.items.CraftingTermScreen;
+import appeng.client.gui.style.Blitter;
 import appeng.api.stacks.AEKey;
 import appeng.api.stacks.GenericStack;
 import appeng.core.network.ServerboundPacket;
@@ -27,6 +28,7 @@ import appeng.core.localization.ButtonToolTips;
 import de.mari_023.ae2wtlib.api.AE2wtlibComponents;
 import appeng.integration.abstraction.ItemListMod;
 import appeng.menu.SlotSemantics;
+import appeng.menu.me.common.GridInventoryEntry;
 import appeng.api.stacks.AEKeyType;
 import de.mari_023.ae2wtlib.api.gui.AE2wtlibSlotSemantics;
 import de.mari_023.ae2wtlib.api.gui.ScrollingUpgradesPanel;
@@ -120,6 +122,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     private ExtendedUIButton toolboxButton;
     private ExtendedUIButton toolkitButton;
     private ExtendedUIButton resonatingLightningPatternCodingButton;
+    private FavoriteItemsButton favoriteItemsButton;
 
     /** 4 个样板模式 tab 按钮中**最顶**的那个（modeTabButton3）。扩展按钮 Y 锚到它的顶部。*/
     private TabButton topModeTabButton;
@@ -205,6 +208,8 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             new ExtendedPanelLayout.Rect(176, 210, 160, 71);
     private ExtendedPanelLayout.Rect patternManagementScrollbarRect =
             new ExtendedPanelLayout.Rect(343, 210, 12, 71);
+    private ExtendedPanelLayout.Rect pinnedRowOverlayRect =
+            new ExtendedPanelLayout.Rect(7, 272, 324, 18);
     private ExtendedPanelLayout.Rect managementToolkitBackgroundRect =
             new ExtendedPanelLayout.Rect(176, 210, 162, 72);
     private ExtendedPanelLayout.Rect managementToolkitSlotRect =
@@ -342,6 +347,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     private ItemStack lastEncodedPatternForUploadSync = ItemStack.EMPTY;
     private @Nullable String lastEncodedPatternUploadSearchText;
     private boolean attemptedRestoreManagementToolkitOpenState;
+    private boolean rebuildingFavoriteRepoView;
     
     public WirelessComprehensiveWorkTerminalScreen(WirelessComprehensiveWorkTerminalMenu menu, 
                                                      Inventory playerInventory, 
@@ -354,7 +360,10 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                                                      Component title,
                                                      ScreenStyle style) {
         super(menu, playerInventory, title, style);
+        WcwtFavorites.ensureLoaded();
         hookRepoUpdateListener();
+        favoriteItemsButton = addToLeftToolbar(new FavoriteItemsButton(WcwtFavorites::isEnabled,
+                btn -> toggleFavoritedItemsFirst()));
         widgets.add("player", new PlayerEntityWidget(Objects.requireNonNull(Minecraft.getInstance().player)));
 
         var host = menu.getMenuHost();
@@ -404,6 +413,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         patternManagementPage = mainLayout.widget("management_page", patternManagementPage, imageWidth, imageHeight);
         patternManagementScrollbarRect = mainLayout.widget("manage_scrollbar", patternManagementScrollbarRect,
                 imageWidth, imageHeight);
+        pinnedRowOverlayRect = mainLayout.widget("pinned_row_overlay", pinnedRowOverlayRect, imageWidth, imageHeight);
         managementToolkitBackgroundRect = managementToolkitLayout.widget("management_toolkit_background",
                 managementToolkitBackgroundRect, imageWidth, imageHeight);
         managementToolkitSlotRect = managementToolkitLayout.slot("management_toolkit_slots", managementToolkitSlotRect,
@@ -811,11 +821,121 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         }
     }
 
+    private int getRepoColumns() {
+        int firstRepoRowY = Integer.MIN_VALUE;
+        int columns = 0;
+        for (Slot slot : menu.slots) {
+            if (!(slot instanceof RepoSlot)) {
+                continue;
+            }
+            if (firstRepoRowY == Integer.MIN_VALUE) {
+                firstRepoRowY = slot.y;
+            }
+            if (slot.y != firstRepoRowY) {
+                break;
+            }
+            columns++;
+        }
+        return columns;
+    }
+
+    private void renderPinnedRowBackgroundOverlay(GuiGraphics guiGraphics, int offsetX, int offsetY) {
+        if (!repo.hasPinnedRow()) {
+            return;
+        }
+        guiGraphics.blit(
+                WCWT_GUI_TEXTURE,
+                offsetX + pinnedRowOverlayRect.left(),
+                offsetY + pinnedRowOverlayRect.top(),
+                7,
+                307,
+                pinnedRowOverlayRect.width(),
+                pinnedRowOverlayRect.height(),
+                512,
+                512);
+    }
+
     private void hookRepoUpdateListener() {
         repo.setUpdateViewListener(() -> {
+            rebuildFavoriteRepoView();
             invokeMeStorageUpdateScrollbar();
             rebuildCraftableIndicatorCache();
         });
+    }
+
+    private void rebuildFavoriteRepoView() {
+        if (rebuildingFavoriteRepoView) {
+            return;
+        }
+        if (!repo.isEnabled()) {
+            return;
+        }
+
+        rebuildingFavoriteRepoView = true;
+        try {
+            if (!WcwtFavorites.isEnabled()) {
+                return;
+            }
+
+            @SuppressWarnings("unchecked")
+            var viewField = appeng.client.gui.me.common.Repo.class.getDeclaredField("view");
+            viewField.setAccessible(true);
+            var view = (List<GridInventoryEntry>) viewField.get(repo);
+            if (view == null || view.size() < 2) {
+                return;
+            }
+
+            List<GridInventoryEntry> favorited = new ArrayList<>();
+            List<GridInventoryEntry> normal = new ArrayList<>();
+            for (var entry : view) {
+                if (entry == null || entry.getWhat() == null) {
+                    continue;
+                }
+                if (WcwtFavorites.isFavorited(entry.getWhat())) {
+                    favorited.add(entry);
+                } else {
+                    normal.add(entry);
+                }
+            }
+
+            if (favorited.isEmpty()) {
+                return;
+            }
+
+            view.clear();
+            view.addAll(favorited);
+            view.addAll(normal);
+        } catch (ReflectiveOperationException ignored) {
+        } finally {
+            rebuildingFavoriteRepoView = false;
+        }
+    }
+
+    private @Nullable GridInventoryEntry getDisplayedRepoEntry(RepoSlot repoSlot) {
+        return repoSlot.getEntry();
+    }
+
+    private void toggleFavoritedItemsFirst() {
+        WcwtFavorites.setEnabled(!WcwtFavorites.isEnabled());
+        rebuildFavoriteRepoView();
+        invokeMeStorageUpdateScrollbar();
+    }
+
+    public boolean toggleFavoriteForHoveredRepoSlot() {
+        if (isTypingInPatternManagementField()) {
+            return false;
+        }
+        if (!(hoveredSlot instanceof RepoSlot repoSlot)) {
+            return false;
+        }
+        GridInventoryEntry entry = getDisplayedRepoEntry(repoSlot);
+        if (entry == null || entry.getWhat() == null) {
+            return false;
+        }
+        WcwtFavorites.toggle(entry.getWhat());
+        rebuildFavoriteRepoView();
+        invokeMeStorageUpdateScrollbar();
+        return true;
     }
 
     private void invokeMeStorageUpdateScrollbar() {
@@ -1148,6 +1268,10 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             toolkitButton.visible = !hideExtendedButtons && isExtendedUIAvailable(IExtendedUIHost.ExtendedUIType.TOOLKIT);
             toolkitButton.active = toolkitButton.visible;
         }
+        if (favoriteItemsButton != null) {
+            favoriteItemsButton.visible = true;
+            favoriteItemsButton.active = favoriteItemsButton.visible;
+        }
         if (resonatingLightningPatternCodingButton != null) {
             resonatingLightningPatternCodingButton.visible = !hideExtendedButtons
                     && isExtendedUIAvailable(IExtendedUIHost.ExtendedUIType.RESONATING_LIGHTNING_PATTERN_CODING);
@@ -1215,7 +1339,8 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     public boolean isTypingInPatternManagementField() {
         return isMeTerminalSearchFieldFocused()
                 || (patternManageSearchField != null && patternManageSearchField.isFocused())
-                || (patternManageMappingField != null && patternManageMappingField.isFocused());
+                || (patternManageMappingField != null && patternManageMappingField.isFocused())
+                || (manualAnvilNameField != null && manualAnvilNameField.isFocused());
     }
 
     private boolean isMeTerminalSearchFieldFocused() {
@@ -1678,6 +1803,10 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     @Override
     protected void updateBeforeRender() {
         super.updateBeforeRender();
+        WcwtFavorites.ensureLoaded();
+        if (WcwtFavorites.isEnabled()) {
+            rebuildFavoriteRepoView();
+        }
         refreshRepoViewAfterTransientReconnect();
         restoreManagementToolkitOpenStateIfNeeded();
         boolean syncedPatternManagementUploadEnabled = menu.isPatternManagementUploadEnabled();
@@ -2442,6 +2571,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         patternManagementPage = mainLayout.widget("management_page", patternManagementPage, imageWidth, imageHeight);
         patternManagementScrollbarRect = mainLayout.widget("manage_scrollbar", patternManagementScrollbarRect,
                 imageWidth, imageHeight);
+        pinnedRowOverlayRect = mainLayout.widget("pinned_row_overlay", pinnedRowOverlayRect, imageWidth, imageHeight);
         managementToolkitBackgroundRect = managementToolkitLayout.widget("management_toolkit_background",
                 managementToolkitBackgroundRect, imageWidth, imageHeight);
         managementToolkitSlotRect = managementToolkitLayout.slot("management_toolkit_slots", managementToolkitSlotRect,
@@ -2751,6 +2881,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                     256, 256);
         }
         super.renderSlot(guiGraphics, slot);
+        renderFavoritedIndicator(guiGraphics, slot);
         renderCraftablePatternIndicator(guiGraphics, slot);
         renderCurioToggle(guiGraphics, slot);
     }
@@ -2762,7 +2893,29 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             lines = new ArrayList<>(lines);
             lines.add(ButtonToolTips.Craftable.text().withStyle(ChatFormatting.DARK_GRAY));
         }
+        if (hoveredSlot instanceof RepoSlot repoSlot) {
+            GridInventoryEntry entry = getDisplayedRepoEntry(repoSlot);
+            if (entry != null && entry.getWhat() != null && WcwtFavorites.isFavorited(entry.getWhat())) {
+                lines = new ArrayList<>(lines);
+                lines.add(Component.translatable("gui.wcwt.favorite.marked").withStyle(ChatFormatting.GOLD));
+            }
+        }
         return lines;
+    }
+
+    private void renderFavoritedIndicator(GuiGraphics guiGraphics, Slot slot) {
+        if (!(slot instanceof RepoSlot repoSlot)) {
+            return;
+        }
+        GridInventoryEntry entry = getDisplayedRepoEntry(repoSlot);
+        if (entry == null || entry.getWhat() == null || !WcwtFavorites.isFavorited(entry.getWhat())) {
+            return;
+        }
+        var poseStack = guiGraphics.pose();
+        poseStack.pushPose();
+        poseStack.translate(0, 0, 300);
+        guiGraphics.blit(WCWT_STATES_TEXTURE, slot.x + 1, slot.y + 1, 48, 32, 16, 16, 256, 256);
+        poseStack.popPose();
     }
 
     private void renderCraftablePatternIndicator(GuiGraphics guiGraphics, Slot slot) {
@@ -2813,7 +2966,53 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         }
 
         int texX = curioSlot.getRenderStatus() ? 75 : 83;
+        var poseStack = guiGraphics.pose();
+        poseStack.pushPose();
+        poseStack.translate(0, 0, 300);
         guiGraphics.blit(CURIOS_INVENTORY_TEXTURE, slot.x + 12, slot.y - 1, texX, 0, 8, 8, 256, 256);
+        poseStack.popPose();
+    }
+
+    @Override
+    protected void renderSlotHighlight(GuiGraphics guiGraphics, Slot slot, int mouseX, int mouseY, float partialTick) {
+        super.renderSlotHighlight(guiGraphics, slot, mouseX, mouseY, partialTick);
+        renderFavoritedIndicator(guiGraphics, slot);
+        renderCurioToggle(guiGraphics, slot);
+    }
+
+    private boolean isCosmeticArmorVisible(int cosmeticIndex) {
+        if (!ModList.get().isLoaded("cosmeticarmorreworked")) {
+            return false;
+        }
+        var player = Minecraft.getInstance().player;
+        if (player == null) {
+            return false;
+        }
+        int slot = switch (cosmeticIndex) {
+            case 0 -> 3;
+            case 1 -> 2;
+            case 2 -> 1;
+            case 3 -> 0;
+            default -> -1;
+        };
+        return slot >= 0 && com.lhy.wcwt.compat.CosmeticArmorReworkedBridge.isSkinArmor(player, slot);
+    }
+
+    private void renderCosmeticArmorToggleOverlay(GuiGraphics guiGraphics) {
+        if (cosmeticArmorPanel == null || !cosmeticArmorPanel.isVisible()) {
+            return;
+        }
+        var bounds = cosmeticArmorPanel.getBounds();
+        var poseStack = guiGraphics.pose();
+        poseStack.pushPose();
+        poseStack.translate(0, 0, 400);
+        for (int cosmeticIndex = 0; cosmeticIndex < 4; cosmeticIndex++) {
+            int iconX = bounds.getX() + 3 + cosmeticIndex * 18;
+            int iconY = bounds.getY() + 15;
+            int texX = isCosmeticArmorVisible(cosmeticIndex) ? 208 : 192;
+            guiGraphics.blit(WCWT_STATES_TEXTURE, iconX, iconY, texX, 0, 5, 5, 256, 256);
+        }
+        poseStack.popPose();
     }
 
     private boolean isPanelSlot(net.minecraft.world.inventory.Slot slot) {
@@ -2879,6 +3078,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     @Override
     public void drawBG(GuiGraphics guiGraphics, int offsetX, int offsetY, int mouseX, int mouseY, float partialTicks) {
         super.drawBG(guiGraphics, offsetX, offsetY, mouseX, mouseY, partialTicks);
+        renderPinnedRowBackgroundOverlay(guiGraphics, offsetX, offsetY);
         renderManualWorkspaceBackground(guiGraphics, offsetX, offsetY);
         renderPatternEncodingBackground(guiGraphics, offsetX, offsetY);
         if (isToolkitExpandedInManagementArea()) {
@@ -3735,6 +3935,12 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if ((patternManageSearchField != null && patternManageSearchField.isFocused()
+                && patternManageSearchField.keyPressed(keyCode, scanCode, modifiers))
+                || (patternManageMappingField != null && patternManageMappingField.isFocused()
+                && patternManageMappingField.keyPressed(keyCode, scanCode, modifiers))) {
+            return true;
+        }
         if (manualAnvilNameField != null && manualAnvilNameField.isVisible() && manualAnvilNameField.isFocused()
                 && (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER
                 || keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER
@@ -3743,6 +3949,9 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             if (getFocused() == manualAnvilNameField) {
                 setFocused(null);
             }
+            return true;
+        }
+        if (WcwtKeybindings.TOGGLE_FAVORITE_ITEM.matches(keyCode, scanCode) && toggleFavoriteForHoveredRepoSlot()) {
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -4331,6 +4540,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
 
     @Override
     protected void renderTooltip(GuiGraphics guiGraphics, int mouseX, int mouseY) {
+        renderCosmeticArmorToggleOverlay(guiGraphics);
         ItemStack stonecuttingStack = getStonecuttingResultUnderMouse(mouseX, mouseY);
         if (!stonecuttingStack.isEmpty()) {
             guiGraphics.renderTooltip(font, stonecuttingStack, mouseX, mouseY);
