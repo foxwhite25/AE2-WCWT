@@ -63,11 +63,19 @@ public final class WcwtPullRecipeTransfer {
 
     private static List<RequestedIngredient> collectRequestedIngredients(WirelessComprehensiveWorkTerminalMenu menu,
                                                                          IRecipeSlotsView recipeSlots) {
-        return collectInputSlots(recipeSlots).stream()
-                .filter(WcwtPullRecipeTransfer::hasItemStack)
-                .map(slotView -> toRequestedIngredient(menu, slotView))
-                .filter(ingredient -> !ingredient.alternatives().isEmpty())
-                .toList();
+        List<IRecipeSlotView> inputs = recipeSlots.getSlotViews(RecipeIngredientRole.INPUT);
+        List<RequestedIngredient> result = new ArrayList<>();
+        for (int slotIndex = 0; slotIndex < inputs.size(); slotIndex++) {
+            IRecipeSlotView slotView = inputs.get(slotIndex);
+            if (!hasItemStack(slotView)) {
+                continue;
+            }
+            RequestedIngredient ingredient = toRequestedIngredient(menu, slotView, slotIndex);
+            if (!ingredient.alternatives().isEmpty()) {
+                result.add(ingredient);
+            }
+        }
+        return result;
     }
 
     private static PreviewSlots findTransferPreview(MEStorageMenu container, IRecipeSlotsView recipeSlots) {
@@ -174,10 +182,11 @@ public final class WcwtPullRecipeTransfer {
     }
 
     private static RequestedIngredient toRequestedIngredient(WirelessComprehensiveWorkTerminalMenu menu,
-                                                             IRecipeSlotView slotView) {
+                                                             IRecipeSlotView slotView,
+                                                             int slotIndex) {
         List<ItemStack> alternatives = chooseRequestedAlternative(menu, slotView);
         int count = Math.max(getDisplayedStack(slotView).getCount(), 1);
-        return new RequestedIngredient(alternatives, count);
+        return new RequestedIngredient(alternatives, count, slotIndex);
     }
 
     private static List<ItemStack> chooseRequestedAlternative(WirelessComprehensiveWorkTerminalMenu menu,

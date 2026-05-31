@@ -159,7 +159,8 @@ public class ModClientSetup {
         }
         String screenClassName = activeScreen.getClass().getName();
         return screenClassName.startsWith("mezz.jei.")
-                || screenClassName.startsWith("mezz.jei.library.");
+                || screenClassName.startsWith("mezz.jei.library.")
+                || screenClassName.startsWith("dev.emi.emi.screen.");
     }
 
     private static boolean toggleCraftingGridLock(Minecraft minecraft) {
@@ -172,25 +173,30 @@ public class ModClientSetup {
             return false;
         }
         host.toggleCraftingGridLock();
-        refreshJeiRecipesGuiIfPresent(minecraft.screen);
+        refreshRecipeViewerIfPresent(minecraft);
         net.neoforged.neoforge.network.PacketDistributor
                 .sendToServer(new CraftingLockPacket(host.isCraftingGridLocked()));
         return true;
     }
 
-    private static void refreshJeiRecipesGuiIfPresent(Screen activeScreen) {
+    private static void refreshRecipeViewerIfPresent(Minecraft minecraft) {
+        Screen activeScreen = minecraft.screen;
         if (activeScreen == null) {
             return;
         }
         String screenClassName = activeScreen.getClass().getName();
-        if (!screenClassName.equals("mezz.jei.gui.recipes.RecipesGui")) {
+        if (screenClassName.equals("mezz.jei.gui.recipes.RecipesGui")) {
+            try {
+                Method updateLayout = activeScreen.getClass().getDeclaredMethod("updateLayout");
+                updateLayout.setAccessible(true);
+                updateLayout.invoke(activeScreen);
+            } catch (Throwable ignored) {
+            }
             return;
         }
-        try {
-            Method updateLayout = activeScreen.getClass().getDeclaredMethod("updateLayout");
-            updateLayout.setAccessible(true);
-            updateLayout.invoke(activeScreen);
-        } catch (Throwable ignored) {
+        if (screenClassName.equals("dev.emi.emi.screen.RecipeScreen")) {
+            activeScreen.resize(minecraft, minecraft.getWindow().getGuiScaledWidth(),
+                    minecraft.getWindow().getGuiScaledHeight());
         }
     }
 }

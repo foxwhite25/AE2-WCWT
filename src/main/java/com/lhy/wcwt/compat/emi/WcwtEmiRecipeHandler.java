@@ -529,16 +529,32 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
     private static List<RequestedIngredient> collectRequestedIngredients(WirelessComprehensiveWorkTerminalMenu menu,
                                                                          EmiRecipe recipe) {
         var priorityContext = createPriorityContext(menu);
+        if (getTransferMode(recipe) == EncodingMode.CRAFTING) {
+            List<Widget> widgets = collectRecipeWidgets(recipe);
+            Map<Integer, SlotWidget> inputSlots = getRecipeInputSlots(recipe, widgets);
+            List<RequestedIngredient> requested = new ArrayList<>();
+            for (var slotEntry : getOrderedCraftingInputSlots(inputSlots).entrySet()) {
+                RequestedIngredient ingredient = toRequestedIngredient(priorityContext, slotEntry.getValue().getStack(),
+                        slotEntry.getKey());
+                if (ingredient != null) {
+                    requested.add(ingredient);
+                }
+            }
+            if (!requested.isEmpty()) {
+                return requested;
+            }
+        }
         return recipe.getInputs().stream()
                 .filter(ingredient -> !ingredient.isEmpty())
-                .map(ingredient -> toRequestedIngredient(priorityContext, ingredient))
+                .map(ingredient -> toRequestedIngredient(priorityContext, ingredient, -1))
                 .filter(Objects::nonNull)
                 .toList();
     }
 
     @Nullable
     private static RequestedIngredient toRequestedIngredient(WcwtIngredientPriorities.PriorityContext priorityContext,
-                                                             EmiIngredient ingredient) {
+                                                             EmiIngredient ingredient,
+                                                             int slotIndex) {
         List<ItemStack> visibleAlternatives = new ArrayList<>();
         ItemStack displayed = ingredient.getEmiStacks().stream()
                 .map(EmiStack::getItemStack)
@@ -570,7 +586,7 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
                     wideIngredient, visibleAlternatives, priorityContext.bookmarkPriorities());
             if (!bookmarked.isEmpty()) {
                 int count = Math.max(1, (int) Math.min(Integer.MAX_VALUE, ingredient.getAmount()));
-                return new RequestedIngredient(List.of(bookmarked), count);
+                return new RequestedIngredient(List.of(bookmarked), count, slotIndex);
             }
         }
         ItemStack best = WcwtIngredientPriorities.chooseBestItem(priorityContext, wideIngredient, visibleAlternatives);
@@ -578,7 +594,26 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
             return null;
         }
         int count = Math.max(1, (int) Math.min(Integer.MAX_VALUE, ingredient.getAmount()));
-        return new RequestedIngredient(List.of(best), count);
+        return new RequestedIngredient(List.of(best), count, slotIndex);
+    }
+
+    private static Map<Integer, SlotWidget> getOrderedCraftingInputSlots(Map<Integer, SlotWidget> inputSlots) {
+        return inputSlots.values().stream()
+                .filter(slot -> slot != null && slot.getStack() != null && !slot.getStack().isEmpty())
+                .sorted(java.util.Comparator
+                        .comparingInt((SlotWidget slot) -> slot.getBounds().y())
+                        .thenComparingInt(slot -> slot.getBounds().x()))
+                .limit(9)
+                .collect(java.util.stream.Collectors.toMap(
+                        slot -> {
+                            Bounds bounds = slot.getBounds();
+                            int col = Math.max(0, Math.min(2, bounds.x() / 18));
+                            int row = Math.max(0, Math.min(2, bounds.y() / 18));
+                            return row * 3 + col;
+                        },
+                        slot -> slot,
+                        (left, right) -> left,
+                        java.util.LinkedHashMap::new));
     }
 
     @Nullable
