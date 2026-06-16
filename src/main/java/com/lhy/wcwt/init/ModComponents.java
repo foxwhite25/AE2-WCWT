@@ -64,6 +64,14 @@ public class ModComponents {
                     .networkSynchronized(ItemContainerContents.STREAM_CODEC));
 
     /**
+     * AE2 原版显示元件槽库存 (5个槽位)
+     */
+    public static final DeferredHolder<DataComponentType<?>, DataComponentType<ItemContainerContents>> VIEW_CELL_INV =
+            register("view_cell_inv", builder -> builder
+                    .persistent(ItemContainerContents.CODEC)
+                    .networkSynchronized(ItemContainerContents.STREAM_CODEC));
+
+    /**
      * 元件工作台 - 存储元件槽位 (1个槽位)
      */
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<ItemContainerContents>> STORAGE_CELL_INV =

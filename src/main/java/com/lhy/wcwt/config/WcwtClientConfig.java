@@ -14,6 +14,7 @@ public final class WcwtClientConfig {
     public static final ModConfigSpec.BooleanValue ENABLE_RECIPE_PULL_TRANSFER;
     public static final ModConfigSpec.BooleanValue AUTO_SWITCH_MANUAL_WORKSPACE_ON_RECIPE_TRANSFER;
     public static final ModConfigSpec.BooleanValue PATTERN_MANAGEMENT_SHIFT_QUICK;
+    public static final ModConfigSpec.BooleanValue PATTERN_MANAGEMENT_SEARCH_HIGHLIGHT;
     public static final ModConfigSpec.BooleanValue PATTERN_MULTIPLIER_APPLY_TO_EDITOR_PROCESSING;
     public static final ModConfigSpec.BooleanValue PREFER_JEI_BOOKMARKS_FOR_PATTERN_ENCODING;
     public static final ModConfigSpec.BooleanValue EXPAND_TOOLKIT_IN_MANAGEMENT_AREA;
@@ -38,6 +39,10 @@ public final class WcwtClientConfig {
                 .comment("If false: pattern management shift quick moves use normal clicks only. Saving wcwt-client.toml usually reloads without restart.")
                 .translation("wcwt.config.patternManagementShiftQuick")
                 .define("patternManagementShiftQuick", true);
+        PATTERN_MANAGEMENT_SEARCH_HIGHLIGHT = BUILDER
+                .comment("If true: when the pattern management search filters by a pattern's inputs or outputs, matching pattern slots are highlighted.")
+                .translation("wcwt.config.patternManagementSearchHighlight")
+                .define("patternManagementSearchHighlight", true);
         PATTERN_MULTIPLIER_APPLY_TO_EDITOR_PROCESSING = BUILDER
                 .comment("If true: the batch pattern multiplier also applies to the current processing pattern in the pattern editor. Saving wcwt-client.toml usually reloads without restart.")
                 .translation("wcwt.config.patternMultiplierApplyToEditorProcessing")
@@ -72,6 +77,10 @@ public final class WcwtClientConfig {
 
     public static boolean patternManagementShiftQuickEnabled() {
         return PATTERN_MANAGEMENT_SHIFT_QUICK.get();
+    }
+
+    public static boolean patternManagementSearchHighlight() {
+        return PATTERN_MANAGEMENT_SEARCH_HIGHLIGHT.get();
     }
 
     public static boolean autoSwitchManualWorkspaceOnRecipeTransfer() {

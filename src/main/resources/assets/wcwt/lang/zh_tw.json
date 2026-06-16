@@ -157,6 +157,8 @@
   "wcwt.config.patternUploadFailFallbackToEditor.tooltip": "關：優先回退到樣板緩存區，緩存區放不下再回退到樣板編輯槽。開：優先回退到樣板編輯槽。",
   "wcwt.config.patternManagementShiftQuick": "樣板管理 Shift 快速移動",
   "wcwt.config.patternManagementShiftQuick.tooltip": "關：僅用普通點擊。保存配置後一般即生效。",
+  "wcwt.config.patternManagementSearchHighlight": "樣板管理搜尋結果高亮",
+  "wcwt.config.patternManagementSearchHighlight.tooltip": "開：樣板管理區搜尋命中樣板輸入或輸出時，高亮對應樣板槽。保存配置後一般即生效。",
   "wcwt.config.patternMultiplierApplyToEditorProcessing": "樣板倍增器同時作用於樣板編輯區處理樣板",
   "wcwt.config.patternMultiplierApplyToEditorProcessing.tooltip": "開：批處理區的樣板倍增器也會修改當前樣板編輯區裡處理樣板模式的輸入/輸出數量與輸出輪換。關：僅作用於樣板緩存區裡的已編碼樣板。",
   "wcwt.config.preferJeiBookmarksForPatternEncoding": "JEI 拉取樣板時優先使用書籤欄物品",

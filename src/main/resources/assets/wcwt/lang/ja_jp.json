@@ -157,6 +157,8 @@
   "wcwt.config.patternUploadFailFallbackToEditor.tooltip": "OFF: まずパターンキャッシュへ、満杯なら編集スロットへ戻します。ON: まず編集スロットへ戻します。",
   "wcwt.config.patternManagementShiftQuick": "パターン管理 Shift クイック移動",
   "wcwt.config.patternManagementShiftQuick.tooltip": "OFF: 通常クリックのみ。通常は保存後すぐ反映されます。",
+  "wcwt.config.patternManagementSearchHighlight": "パターン管理検索結果を強調表示",
+  "wcwt.config.patternManagementSearchHighlight.tooltip": "ON: パターン管理検索がパターンの入力または出力に一致した場合、そのパターンスロットを強調表示します。通常は保存後すぐ反映されます。",
   "wcwt.config.patternMultiplierApplyToEditorProcessing": "倍率を編集中の処理パターンにも適用",
   "wcwt.config.patternMultiplierApplyToEditorProcessing.tooltip": "ON: 一括倍率操作が、編集中の処理パターンの入出力量と出力ローテーションにも反映されます。OFF: パターンキャッシュ内のエンコード済みパターンのみに適用されます。",
   "wcwt.config.preferJeiBookmarksForPatternEncoding": "JEI 転送時にブックマーク欄の物品を優先",

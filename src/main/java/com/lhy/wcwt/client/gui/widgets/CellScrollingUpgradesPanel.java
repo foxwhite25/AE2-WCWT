@@ -185,7 +185,7 @@ public class CellScrollingUpgradesPanel implements ICompositeWidget {
 
     @Override
     public boolean onMouseWheel(Point mousePos, double delta) {
-        return visible && scrolling() && scrollbar.onMouseWheel(mousePos, delta);
+        return visible && scrolling() && scrollbar.onMouseWheel(mousePos, -delta);
     }
 
     private void updateScrollbarPosition() {

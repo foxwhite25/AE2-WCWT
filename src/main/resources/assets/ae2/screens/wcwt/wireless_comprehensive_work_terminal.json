@@ -252,8 +252,8 @@
       "top": 52
     },
     "viewCells": {
-      "$comment": "AE2 默认查看元件按钮；当前移到界面外。",
-      "right": 800,
+      "$comment": "AE2 原版显示元件面板；左上角紧靠右侧量子桥/升级面板右上角。",
+      "right": -28,
       "top": 0
     },
     "scrollbar": {
@@ -759,8 +759,8 @@
     "manage_scrollbar": {
       "$comment": "样板管理区供应器/样板列表滑块。",
       "left": 343,
-      "bottom": 83,
-      "height": 71
+      "bottom": 84,
+      "height": 72
     },
     "pinned_row_overlay": {
       "$comment": "主仓库区“合成完成置顶”整行底图覆盖层。",
@@ -772,9 +772,9 @@
     "management_page": {
       "$comment": "样板管理区主区域；第9列槽可在宽度不足18时仅绘制左侧像素（见 Java）。",
       "left": 176,
-      "bottom": 81,
+      "bottom": 82,
       "width": 160,
-      "height": 71
+      "height": 72
     },
     "manage_upload_pattern": {
       "$comment": "样板管理区每个供应器行内的上传按钮；top 是相对该行顶部的偏移。",

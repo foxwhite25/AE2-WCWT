@@ -28,6 +28,7 @@ public class WcwtSlotSemantics {
     public static final SlotSemantic WCWT_PATTERN_CRAFTING_GRID = SlotSemantics.register("WCWT_PATTERN_CRAFTING_GRID", false);
     public static final SlotSemantic WCWT_PATTERN_PROCESSING_INPUTS = SlotSemantics.register("WCWT_PATTERN_PROCESSING_INPUTS", false);
     public static final SlotSemantic WCWT_PATTERN_PROCESSING_OUTPUTS = SlotSemantics.register("WCWT_PATTERN_PROCESSING_OUTPUTS", false);
+    public static final SlotSemantic WCWT_PATTERN_PROVIDER = SlotSemantics.register("WCWT_PATTERN_PROVIDER", false);
     public static final SlotSemantic WCWT_PATTERN_SMITHING_TEMPLATE = SlotSemantics.register("WCWT_PATTERN_SMITHING_TEMPLATE", false);
     public static final SlotSemantic WCWT_PATTERN_SMITHING_BASE = SlotSemantics.register("WCWT_PATTERN_SMITHING_BASE", false);
     public static final SlotSemantic WCWT_PATTERN_SMITHING_ADDITION = SlotSemantics.register("WCWT_PATTERN_SMITHING_ADDITION", false);

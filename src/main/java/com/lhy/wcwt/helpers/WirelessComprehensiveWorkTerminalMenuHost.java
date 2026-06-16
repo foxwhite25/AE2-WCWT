@@ -6,6 +6,7 @@ import appeng.api.config.IncludeExclude;
 import appeng.api.config.PowerMultiplier;
 import appeng.api.features.Locatables;
 import appeng.api.ids.AEComponents;
+import appeng.api.implementations.blockentities.IViewCellStorage;
 import appeng.api.inventories.ISegmentedInventory;
 import appeng.api.inventories.InternalInventory;
 import appeng.api.networking.IGridNode;
@@ -62,7 +63,7 @@ import de.mari_023.ae2wtlib.api.results.Status;
 
 public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingTerminalMenuHost<WirelessComprehensiveWorkTerminalItem>
         implements ISegmentedInventory, IExtendedUIHost, IPatternCachingHost, ICraftingLockHost, IConfigInvHost,
-        IPatternTerminalMenuHost, IPatternTerminalLogicHost {
+        IPatternTerminalMenuHost, IPatternTerminalLogicHost, IViewCellStorage {
     private static final boolean DEBUG_REPO = Boolean.getBoolean("wcwt.debug.repo");
     private static final boolean DEBUG_PERF = Boolean.getBoolean("wcwt.debug.perf");
     private static final boolean DEBUG_TOOLKIT = Boolean.getBoolean("wcwt.debug.toolkit");
@@ -90,6 +91,7 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
     public static final ResourceLocation INV_ADVANCED_PATTERN = ResourceLocation.fromNamespaceAndPath(WcwtMod.MOD_ID, "advanced_pattern");
     public static final ResourceLocation INV_PATTERN_CACHE = ResourceLocation.fromNamespaceAndPath(WcwtMod.MOD_ID, "pattern_cache");
     public static final ResourceLocation INV_TOOLKIT = ResourceLocation.fromNamespaceAndPath(WcwtMod.MOD_ID, "toolkit");
+    public static final ResourceLocation INV_VIEW_CELL = ResourceLocation.fromNamespaceAndPath(WcwtMod.MOD_ID, "view_cell");
     public static final ResourceLocation INV_STORAGE_CELL = ResourceLocation.fromNamespaceAndPath(WcwtMod.MOD_ID, "storage_cell");
     public static final ResourceLocation INV_RESONATING_PATTERN_CACHE = ResourceLocation.fromNamespaceAndPath(WcwtMod.MOD_ID, "resonating_pattern_cache");
     public static final ResourceLocation INV_MANUAL_SMITHING = ResourceLocation.fromNamespaceAndPath(WcwtMod.MOD_ID, "manual_smithing");
@@ -127,6 +129,8 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
     private final SupplierInternalInventory<InternalInventory> patternCacheInv;
     // 工具包 - 默认64个槽位，实际数量由服务端配置控制
     private final SupplierInternalInventory<InternalInventory> toolkitInv;
+    // AE2 原版显示元件槽位 - 5个槽位
+    private final SupplierInternalInventory<InternalInventory> viewCellInv;
     // 元件工作台 - 存储元件槽（1个槽位）
     private final SupplierInternalInventory<InternalInventory> storageCellInv;
     // 谐振样板缓存区 - 21个槽位（3行×7列）
@@ -224,6 +228,11 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
                         this::getItemStack,
                         stack -> createToolkitInventory(player, stack)));
 
+        this.viewCellInv = new SupplierInternalInventory<>(
+                new StackDependentSupplier<>(
+                        this::getItemStack,
+                        stack -> createInventory(player, stack, "view_cell", 5)));
+
         // 初始化元件工作台存储元件槽位 (1个槽位)
         this.storageCellInv = new SupplierInternalInventory<>(
                 new StackDependentSupplier<>(
@@ -276,6 +285,11 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
     @Override
     public MEStorage getInventory() {
         return quantumAwareStorage;
+    }
+
+    @Override
+    public InternalInventory getViewCellStorage() {
+        return viewCellInv;
     }
 
     @Nullable
@@ -899,6 +913,8 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
             return patternCacheInv;
         } else if (id.equals(INV_TOOLKIT)) {
             return toolkitInv;
+        } else if (id.equals(INV_VIEW_CELL)) {
+            return viewCellInv;
         } else if (id.equals(INV_STORAGE_CELL)) {
             return storageCellInv;
         } else if (id.equals(INV_RESONATING_PATTERN_CACHE)) {
@@ -1192,6 +1208,7 @@ public class WirelessComprehensiveWorkTerminalMenuHost extends WirelessCraftingT
             case "advanced_pattern" -> ModComponents.ADVANCED_PATTERN_INV.get();
             case "pattern_cache" -> ModComponents.PATTERN_CACHE_INV.get();
             case "toolkit" -> ModComponents.TOOLKIT_INV.get();
+            case "view_cell" -> ModComponents.VIEW_CELL_INV.get();
             case "storage_cell"  -> ModComponents.STORAGE_CELL_INV.get();
             case "resonating_pattern_cache" -> ModComponents.RESONATING_PATTERN_CACHE_INV.get();
             case "manual_smithing" -> ModComponents.MANUAL_SMITHING_INV.get();

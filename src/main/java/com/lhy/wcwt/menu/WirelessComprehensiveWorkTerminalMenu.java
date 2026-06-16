@@ -45,6 +45,7 @@ import com.lhy.wcwt.network.PatternEncodingModePacket;
 import com.lhy.wcwt.network.PatternEncodingOptionPacket;
 import com.lhy.wcwt.network.PatternProviderFocusPacket;
 import com.lhy.wcwt.network.PatternProviderListPacket;
+import com.lhy.wcwt.network.PatternProviderSlotSyncPacket;
 import com.lhy.wcwt.network.TopActionPacket;
 import com.lhy.wcwt.util.PatternUploadMetadata;
 import com.lhy.wcwt.util.PatternProviderSorts;
@@ -111,6 +112,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             Math.max(1L, Long.getLong("wcwt.inventorySyncIntervalTicks", 1L));
     private static final boolean DEBUG_PERF_SKIPPED_INVENTORY_SYNC =
             Boolean.getBoolean("wcwt.debug.perfSkippedInventorySync");
+    public static final int PATTERN_PROVIDER_VISIBLE_SLOTS = 36;
 
     public static final String TYPE_ID = "wireless_comprehensive_work_terminal";
     public static final String TOP_ACTION = "topAction";
@@ -179,6 +181,8 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     private PatternTermSlot patternPreviewSlot;
     private RestrictedInputSlot blankPatternSlot;
     private RestrictedInputSlot encodedPatternSlot;
+    private final PatternProviderSlot[] patternProviderSlots =
+            new PatternProviderSlot[PATTERN_PROVIDER_VISIBLE_SLOTS];
     private int syncedPatternEncodingMode = EncodingMode.PROCESSING.ordinal();
     private final List<RecipeHolder<StonecutterRecipe>> stonecuttingRecipes = new ArrayList<>();
 
@@ -264,6 +268,11 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
                         patternCacheInv, i);
                 addSlot(slot, WcwtSlotSemantics.WCWT_PATTERN_CACHE);
             }
+        }
+        for (int i = 0; i < patternProviderSlots.length; i++) {
+            var slot = new PatternProviderSlot(i);
+            patternProviderSlots[i] = slot;
+            addSlot(slot, WcwtSlotSemantics.WCWT_PATTERN_PROVIDER);
         }
 
         var toolkitInv = host.getSubInventory(WirelessComprehensiveWorkTerminalMenuHost.INV_TOOLKIT);
@@ -436,7 +445,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
                 WcwtSlotSemantics.AE2WTLIB_LEGGINGS);
         addSlot(new PlayerArmorSlot(inventory, 36, ARMOR_EQUIPMENT_SLOTS[3], player),
                 WcwtSlotSemantics.AE2WTLIB_BOOTS);
-        addSlot(new OffhandSlot(inventory, 40), WcwtSlotSemantics.AE2WTLIB_OFFHAND);
+        addSlot(new OffhandSlot(inventory), WcwtSlotSemantics.AE2WTLIB_OFFHAND);
     }
 
     public static final class ToolkitSlot extends AppEngSlot {
@@ -701,11 +710,11 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         }
     }
 
-    private static class OffhandSlot extends Slot implements WcwtActivatableSlot {
+    private static class OffhandSlot extends AppEngSlot implements WcwtActivatableSlot {
         private boolean active = true;
 
-        OffhandSlot(Container inventory, int slot) {
-            super(inventory, slot, 0, 0);
+        OffhandSlot(Inventory inventory) {
+            super(new WrappedPlayerEquipmentInventory(inventory), 40);
         }
 
         @Override
@@ -714,13 +723,49 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         }
 
         @Override
+        public int getMaxStackSize() {
+            return 1;
+        }
+
+        @Override
         public boolean isActive() {
-            return active;
+            return active && super.isActive();
         }
 
         @Override
         public void setWcwtActive(boolean active) {
             this.active = active;
+            setActive(active);
+        }
+    }
+
+    private static final class WrappedPlayerEquipmentInventory implements InternalInventory {
+        private final Inventory playerInventory;
+
+        private WrappedPlayerEquipmentInventory(Inventory playerInventory) {
+            this.playerInventory = playerInventory;
+        }
+
+        @Override
+        public int size() {
+            return playerInventory.getContainerSize();
+        }
+
+        @Override
+        public ItemStack getStackInSlot(int slotIndex) {
+            return slotIndex == 40 ? playerInventory.getItem(slotIndex) : ItemStack.EMPTY;
+        }
+
+        @Override
+        public void setItemDirect(int slotIndex, ItemStack stack) {
+            if (slotIndex == 40) {
+                playerInventory.setItem(slotIndex, stack);
+            }
+        }
+
+        @Override
+        public int getSlotLimit(int slot) {
+            return 1;
         }
     }
 
@@ -752,6 +797,143 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
 
         public void toggleRenderStatus() {
             renderStatus = !renderStatus;
+        }
+
+        @Override
+        public boolean isActive() {
+            return active;
+        }
+
+        @Override
+        public void setWcwtActive(boolean active) {
+            this.active = active;
+        }
+    }
+
+    public final class PatternProviderSlot extends Slot implements WcwtActivatableSlot {
+        private final int visibleIndex;
+        private boolean active;
+        private long providerId = -1L;
+        private int providerSlot = -1;
+        private ItemStack clientDisplayStack = ItemStack.EMPTY;
+        private boolean clientDisplayDirty;
+
+        private PatternProviderSlot(int visibleIndex) {
+            super(new SimpleContainer(1), 0, 0, 0);
+            this.visibleIndex = visibleIndex;
+        }
+
+        public int visibleIndex() {
+            return visibleIndex;
+        }
+
+        public long providerId() {
+            return providerId;
+        }
+
+        public int providerSlot() {
+            return providerSlot;
+        }
+
+        public void setClientDisplayStack(ItemStack stack) {
+            ItemStack next = stack == null ? ItemStack.EMPTY : stack.copy();
+            if (clientDisplayDirty && !ItemStack.matches(clientDisplayStack, next)) {
+                return;
+            }
+            this.clientDisplayStack = next;
+            this.clientDisplayDirty = false;
+        }
+
+        public void forceClientDisplayStack(ItemStack stack) {
+            this.clientDisplayStack = stack == null ? ItemStack.EMPTY : stack.copy();
+            this.clientDisplayDirty = false;
+        }
+
+        private void setMapping(long providerId, int providerSlot) {
+            this.providerId = providerId;
+            this.providerSlot = providerSlot;
+            this.active = providerId > 0 && providerSlot >= 0;
+        }
+
+        private void clearMapping() {
+            this.providerId = -1L;
+            this.providerSlot = -1;
+            this.clientDisplayStack = ItemStack.EMPTY;
+            this.clientDisplayDirty = false;
+            this.active = false;
+        }
+
+        @Nullable
+        private InternalInventory resolveInventory() {
+            if (providerId <= 0 || providerSlot < 0 || isClientSide()) {
+                return null;
+            }
+            var providers = listUploadProviders(false);
+            int providerIndex = (int) providerId - 1;
+            if (providerIndex < 0 || providerIndex >= providers.size()) {
+                return null;
+            }
+            var inv = providers.get(providerIndex).getTerminalPatternInventory();
+            return inv != null && providerSlot < inv.size() ? inv : null;
+        }
+
+        @Override
+        public ItemStack getItem() {
+            var inv = resolveInventory();
+            if (inv == null) {
+                return clientDisplayStack;
+            }
+            return inv.getStackInSlot(providerSlot);
+        }
+
+        @Override
+        public boolean hasItem() {
+            return !getItem().isEmpty();
+        }
+
+        @Override
+        public void set(ItemStack stack) {
+            var inv = resolveInventory();
+            if (inv == null) {
+                clientDisplayStack = stack == null ? ItemStack.EMPTY : stack.copy();
+                clientDisplayDirty = true;
+                return;
+            }
+            inv.setItemDirect(providerSlot, stack == null ? ItemStack.EMPTY : stack.copy());
+        }
+
+        @Override
+        public ItemStack remove(int amount) {
+            var inv = resolveInventory();
+            if (amount <= 0) {
+                return ItemStack.EMPTY;
+            }
+            if (inv == null) {
+                ItemStack extracted = clientDisplayStack.split(amount);
+                if (!extracted.isEmpty()) {
+                    clientDisplayDirty = true;
+                }
+                return extracted;
+            }
+            return inv.extractItem(providerSlot, amount, false);
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return active
+                    && !stack.isEmpty()
+                    && appeng.api.crafting.PatternDetailsHelper.isEncodedPattern(stack)
+                    && (isClientSide() || resolveInventory() != null);
+        }
+
+        @Override
+        public boolean mayPickup(Player player) {
+            return active && !getItem().isEmpty();
+        }
+
+        @Override
+        public int getMaxStackSize() {
+            return 1;
         }
 
         @Override
@@ -971,6 +1153,21 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     
     public WirelessComprehensiveWorkTerminalMenuHost getMenuHost() {
         return menuHost;
+    }
+
+    public void setPatternProviderSlotSync(List<PatternProviderSlotSyncPacket.Mapping> mappings) {
+        for (var slot : patternProviderSlots) {
+            if (slot != null) {
+                slot.clearMapping();
+            }
+        }
+        for (var mapping : mappings) {
+            int visibleSlot = mapping.visibleSlot();
+            if (visibleSlot < 0 || visibleSlot >= patternProviderSlots.length) {
+                continue;
+            }
+            patternProviderSlots[visibleSlot].setMapping(mapping.providerId(), mapping.providerSlot());
+        }
     }
 
     public ManualWorkspaceMode getManualWorkspaceMode() {
@@ -2929,6 +3126,9 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
                 broadcastChanges();
                 return result;
             }
+            if (sourceSlot instanceof PatternProviderSlot patternProviderSlot) {
+                return quickMovePatternProviderSlot(player, patternProviderSlot);
+            }
             if (sourceSlot.hasItem() && !isPlayerArmorSlot(sourceSlot)) {
                 ItemStack sourceStack = sourceSlot.getItem();
                 ItemStack movedCurioToPlayer = tryMoveCurioToPlayerInventoryFirst(player, sourceSlot, sourceStack);
@@ -2960,6 +3160,25 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             }
         }
         return super.quickMoveStack(player, slotIndex);
+    }
+
+    private ItemStack quickMovePatternProviderSlot(Player player, PatternProviderSlot sourceSlot) {
+        if (!sourceSlot.isActive() || !sourceSlot.hasItem() || !sourceSlot.mayPickup(player)) {
+            return ItemStack.EMPTY;
+        }
+        ItemStack original = sourceSlot.getItem().copy();
+        ItemStack toInsert = original.copy();
+        int playerInventoryStart = getPlayerInventoryStartMenuIndex();
+        if (playerInventoryStart < 0 || !moveItemStackTo(toInsert, playerInventoryStart, slots.size(), true)) {
+            return ItemStack.EMPTY;
+        }
+        int moved = original.getCount() - toInsert.getCount();
+        if (moved <= 0) {
+            return ItemStack.EMPTY;
+        }
+        sourceSlot.remove(moved);
+        sourceSlot.setChanged();
+        return original;
     }
 
     private ItemStack quickMoveManualAnvilResult(Player player) {
@@ -3083,8 +3302,32 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         return semantic == SlotSemantics.PLAYER_HOTBAR || semantic == SlotSemantics.PLAYER_INVENTORY;
     }
 
+    private boolean isOffhandSlot(Slot slot) {
+        return getSlots(WcwtSlotSemantics.AE2WTLIB_OFFHAND).contains(slot);
+    }
+
+    private static boolean isManualSmithingOrAnvilInputSemantic(@Nullable appeng.menu.SlotSemantic semantic) {
+        return semantic == WcwtSlotSemantics.WCWT_MANUAL_SMITHING_TEMPLATE
+                || semantic == WcwtSlotSemantics.WCWT_MANUAL_SMITHING_BASE
+                || semantic == WcwtSlotSemantics.WCWT_MANUAL_SMITHING_ADDITION
+                || semantic == WcwtSlotSemantics.WCWT_MANUAL_ANVIL_LEFT
+                || semantic == WcwtSlotSemantics.WCWT_MANUAL_ANVIL_RIGHT;
+    }
+
     @Override
     protected boolean isValidQuickMoveDestination(Slot candidateSlot, ItemStack stackToMove, boolean fromPlayerSide) {
+        if (candidateSlot instanceof PatternProviderSlot) {
+            return false;
+        }
+        if (!fromPlayerSide && isOffhandSlot(candidateSlot)) {
+            return false;
+        }
+        var candidateSemantic = getSlotSemantic(candidateSlot);
+        if (fromPlayerSide
+                && !getLinkStatus().connected()
+                && isManualSmithingOrAnvilInputSemantic(candidateSemantic)) {
+            return false;
+        }
         if (!super.isValidQuickMoveDestination(candidateSlot, stackToMove, fromPlayerSide)) {
             if (DEBUG_QUICKMOVE_UPGRADE && isUpgradeLikeSemantic(getSlotSemantic(candidateSlot))) {
                 logQuickMoveUpgrade("reject(super) fromPlayerSide={}, moving={}, candidate={}",
@@ -3101,7 +3344,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             return true;
         }
 
-        var semantic = getSlotSemantic(candidateSlot);
+        var semantic = candidateSemantic;
         if (semantic == WcwtSlotSemantics.WCWT_TOOLKIT
                 && menuHost.getCurrentExtendedUI() != IExtendedUIHost.ExtendedUIType.TOOLKIT) {
             return false;

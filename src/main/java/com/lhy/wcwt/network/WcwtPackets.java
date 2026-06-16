@@ -175,6 +175,12 @@ public class WcwtPackets {
         );
 
         registrar.playToServer(
+            PatternProviderSlotSyncPacket.TYPE,
+            PatternProviderSlotSyncPacket.STREAM_CODEC,
+            PatternProviderSlotSyncPacket::handle
+        );
+
+        registrar.playToServer(
             PatternManagementActionPacket.TYPE,
             PatternManagementActionPacket.STREAM_CODEC,
             PatternManagementActionPacket::handle

@@ -118,6 +118,18 @@ public final class WcwtIngredientPriorities {
                 .orElse(null);
     }
 
+    @Nullable
+    public static GenericStack chooseBestGenericStackForEncoding(PriorityContext context,
+                                                                 List<GenericStack> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+
+        return candidates.stream()
+                .max(Comparator.comparingInt(stack -> getPriority(context.ingredientPriorities(), stack.what())))
+                .orElse(null);
+    }
+
     public static ItemStack chooseBestItem(@Nullable MEStorageMenu menu,
                                            Ingredient ingredient,
                                            List<ItemStack> visibleAlternatives) {
@@ -140,6 +152,35 @@ public final class WcwtIngredientPriorities {
 
         ItemStack[] items = ingredient.getItems();
         return items.length > 0 ? items[0].copy() : ItemStack.EMPTY;
+    }
+
+    public static ItemStack chooseBestItemForEncoding(PriorityContext context,
+                                                      Ingredient ingredient,
+                                                      List<ItemStack> visibleAlternatives) {
+        ItemStack bestNetworkIngredient = findBestNetworkIngredient(context, ingredient);
+        if (!bestNetworkIngredient.isEmpty()) {
+            return bestNetworkIngredient;
+        }
+
+        ItemStack[] items = ingredient.getItems();
+        if (items.length == 0) {
+            return ItemStack.EMPTY;
+        }
+
+        if (visibleAlternatives != null && !visibleAlternatives.isEmpty()) {
+            for (ItemStack item : items) {
+                if (containsEquivalentStack(visibleAlternatives, item)) {
+                    return item.copy();
+                }
+            }
+        }
+
+        return items[0].copy();
+    }
+
+    public static ItemStack chooseBestItemForEncoding(PriorityContext context,
+                                                      Ingredient ingredient) {
+        return chooseBestItemForEncoding(context, ingredient, List.of());
     }
 
     private static ItemStack findBestNetworkIngredient(@Nullable MEStorageMenu menu, Ingredient ingredient) {

@@ -159,6 +159,8 @@
   "wcwt.config.patternUploadFailFallbackToEditor.tooltip": "ВЫКЛ: сначала вернуть в кэш шаблонов, затем в слот редактирования, если кэш полон. ВКЛ: сначала вернуть в слот редактирования.",
   "wcwt.config.patternManagementShiftQuick": "Быстрое Shift-перемещение в управлении шаблонами",
   "wcwt.config.patternManagementShiftQuick.tooltip": "ВЫКЛ: только обычные клики. Обычно применяется сразу после сохранения.",
+  "wcwt.config.patternManagementSearchHighlight": "Подсветка результатов поиска шаблонов",
+  "wcwt.config.patternManagementSearchHighlight.tooltip": "ВКЛ: если поиск в управлении шаблонами находит вход или выход шаблона, соответствующий слот шаблона подсвечивается. Обычно применяется сразу после сохранения.",
   "wcwt.config.patternMultiplierApplyToEditorProcessing": "Применять множитель и к редактируемому шаблону обработки",
   "wcwt.config.patternMultiplierApplyToEditorProcessing.tooltip": "ВКЛ: пакетный множитель также меняет количества входов/выходов и поворот выходов у текущего шаблона обработки в редакторе. ВЫКЛ: влияет только на закодированные шаблоны в кэше.",
   "wcwt.config.preferJeiBookmarksForPatternEncoding": "При JEI-переносе отдавать приоритет закладкам",
