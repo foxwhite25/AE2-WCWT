@@ -175,7 +175,10 @@ public class WcwtRecipeTransferHandler
         }
     }
 
-    private static EncodingMode getTransferMode(@Nullable Recipe<?> recipe, IRecipeSlotsView slotsView) {
+    static EncodingMode getTransferMode(@Nullable Object recipeObject, IRecipeSlotsView slotsView) {
+        Recipe<?> recipe = recipeObject instanceof RecipeHolder<?> holder ? holder.value()
+                : recipeObject instanceof Recipe<?> directRecipe ? directRecipe
+                : null;
         if (recipe != null && EncodingHelper.isSupportedCraftingRecipe(recipe)) {
             if (recipe.getType() == RecipeType.STONECUTTING) {
                 return EncodingMode.STONECUTTING;

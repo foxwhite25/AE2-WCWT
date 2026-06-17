@@ -30,6 +30,7 @@ import com.lhy.wcwt.network.WcwtPullRecipeInputsPacket;
 import com.lhy.wcwt.network.WcwtPullRecipeInputsPacket.RequestedIngredient;
 import com.lhy.wcwt.pull.WcwtIngredientPriorities;
 import com.lhy.wcwt.pull.WcwtPullIngredientOrdering;
+import appeng.parts.encoding.EncodingMode;
 
 /** JEI「+」从 ME 拉配方原料：锁定合成网格时生效；编码逻辑见 {@link WcwtRecipeTransferHandler}。 */
 public final class WcwtPullRecipeTransfer {
@@ -51,6 +52,10 @@ public final class WcwtPullRecipeTransfer {
         }
 
         List<RequestedIngredient> requestedIngredients = collectRequestedIngredients(menu, recipeSlots);
+        if (menu.getManualWorkspaceMode() == WirelessComprehensiveWorkTerminalMenu.ManualWorkspaceMode.CRAFTING
+                && WcwtRecipeTransferHandler.getTransferMode(recipeIgnored, recipeSlots) == EncodingMode.PROCESSING) {
+            requestedIngredients = mergeProcessingIngredients(requestedIngredients);
+        }
         if (requestedIngredients.isEmpty()) {
             return transferHelper.createUserErrorWithTooltip(
                     Component.translatable("message.wcwt.pull_no_inputs"));
@@ -76,6 +81,30 @@ public final class WcwtPullRecipeTransfer {
             }
         }
         return result;
+    }
+
+    private static List<RequestedIngredient> mergeProcessingIngredients(List<RequestedIngredient> ingredients) {
+        List<RequestedIngredient> merged = new ArrayList<>();
+        for (RequestedIngredient ingredient : ingredients) {
+            if (ingredient.alternatives().isEmpty()) {
+                continue;
+            }
+            ItemStack representative = ingredient.alternatives().getFirst();
+            boolean mergedExisting = false;
+            for (int i = 0; i < merged.size(); i++) {
+                RequestedIngredient existing = merged.get(i);
+                if (ItemStack.isSameItemSameComponents(existing.alternatives().getFirst(), representative)) {
+                    merged.set(i, new RequestedIngredient(existing.alternatives(),
+                            existing.count() + ingredient.count(), -1));
+                    mergedExisting = true;
+                    break;
+                }
+            }
+            if (!mergedExisting) {
+                merged.add(new RequestedIngredient(ingredient.alternatives(), ingredient.count(), -1));
+            }
+        }
+        return merged;
     }
 
     private static PreviewSlots findTransferPreview(MEStorageMenu container, IRecipeSlotsView recipeSlots) {

@@ -655,7 +655,12 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
 
         @Override
         public int getMaxStackSize() {
-            return 1;
+            return 64;
+        }
+
+        @Override
+        public int getMaxStackSize(ItemStack stack) {
+            return Math.min(stack.getMaxStackSize(), 64);
         }
 
         @Override
@@ -766,7 +771,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
 
         @Override
         public int getSlotLimit(int slot) {
-            return 1;
+            return slot == 40 ? playerInventory.getMaxStackSize() : 0;
         }
     }
 
@@ -3176,6 +3181,9 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             if (isUpgradeLikeSemantic(getSlotSemantic(sourceSlot))) {
                 return ItemStack.EMPTY;
             }
+            if (isPlayerArmorSlot(sourceSlot)) {
+                return quickMovePlayerEquipmentToInventory(player, sourceSlot);
+            }
             if (sourceSlot == manualAnvilResultSlot) {
                 ItemStack result = quickMoveManualAnvilResult(player);
                 updateManualWorkspaceResults();
@@ -3183,7 +3191,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
                 return result;
             }
             if (sourceSlot == manualSmithingResultSlot) {
-                ItemStack result = super.quickMoveStack(player, slotIndex);
+                ItemStack result = quickMoveManualSmithingResult(player);
                 updateManualWorkspaceResults();
                 broadcastChanges();
                 return result;
@@ -3193,19 +3201,22 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             }
             if (sourceSlot.hasItem() && !isPlayerArmorSlot(sourceSlot)) {
                 ItemStack sourceStack = sourceSlot.getItem();
+                boolean fromPlayerInventory = isPlayerHotbarOrStorageSemanticSlot(sourceSlot);
                 ItemStack movedCurioToPlayer = tryMoveCurioToPlayerInventoryFirst(player, sourceSlot, sourceStack);
                 if (!movedCurioToPlayer.isEmpty()) {
                     return movedCurioToPlayer;
                 }
 
-                EquipmentSlot equipmentSlot = player.getEquipmentSlotForItem(sourceStack);
-                if (equipmentSlot.getType() == EquipmentSlot.Type.HUMANOID_ARMOR) {
-                    Slot targetSlot = getPlayerArmorSlot(equipmentSlot);
-                    if (targetSlot != null && !targetSlot.hasItem() && targetSlot.mayPlace(sourceStack)) {
-                        ItemStack original = sourceStack.copy();
-                        if (moveItemStackTo(sourceStack, targetSlot.index, targetSlot.index + 1, false)) {
-                            finishPriorityQuickMove(player, sourceSlot, sourceStack);
-                            return original;
+                if (!fromPlayerInventory) {
+                    EquipmentSlot equipmentSlot = player.getEquipmentSlotForItem(sourceStack);
+                    if (equipmentSlot.getType() == EquipmentSlot.Type.HUMANOID_ARMOR) {
+                        Slot targetSlot = getPlayerArmorSlot(equipmentSlot);
+                        if (targetSlot != null && !targetSlot.hasItem() && targetSlot.mayPlace(sourceStack)) {
+                            ItemStack original = sourceStack.copy();
+                            if (moveItemStackTo(sourceStack, targetSlot.index, targetSlot.index + 1, false)) {
+                                finishPriorityQuickMove(player, sourceSlot, sourceStack);
+                                return original;
+                            }
                         }
                     }
                 }
@@ -3241,6 +3252,43 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         sourceSlot.remove(moved);
         sourceSlot.setChanged();
         return original;
+    }
+
+    private ItemStack quickMovePlayerEquipmentToInventory(Player player, Slot sourceSlot) {
+        if (!sourceSlot.hasItem() || !sourceSlot.mayPickup(player)) {
+            return ItemStack.EMPTY;
+        }
+        int playerInventoryStart = getPlayerInventoryStartMenuIndex();
+        if (playerInventoryStart < 0) {
+            return ItemStack.EMPTY;
+        }
+        ItemStack sourceStack = sourceSlot.getItem();
+        ItemStack original = sourceStack.copy();
+        if (!moveItemStackTo(sourceStack, playerInventoryStart, slots.size(), false)) {
+            return ItemStack.EMPTY;
+        }
+        finishPriorityQuickMove(player, sourceSlot, sourceStack);
+        return original;
+    }
+
+    private ItemStack quickMoveManualSmithingResult(Player player) {
+        if (manualSmithingResultSlot == null
+                || !manualSmithingResultSlot.hasItem()
+                || !manualSmithingResultSlot.mayPickup(player)) {
+            return ItemStack.EMPTY;
+        }
+
+        ItemStack resultStack = manualSmithingResultSlot.getItem().copy();
+        ItemStack toInsert = resultStack.copy();
+        int playerInventoryStart = getPlayerInventoryStartMenuIndex();
+        if (playerInventoryStart < 0
+                || !moveItemStackTo(toInsert, playerInventoryStart, slots.size(), true)
+                || !toInsert.isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+
+        manualSmithingBridge.takeResult(player, resultStack.copy());
+        return resultStack;
     }
 
     private ItemStack quickMoveManualAnvilResult(Player player) {

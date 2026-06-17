@@ -370,6 +370,10 @@ public final class WcwtTerminalPullService {
             @Nullable int[] reservedCraftingGridItems, int requestedSlot) {
         if (craftingGridSnapshot.isEmpty() || reservedCraftingGridItems == null || amount <= 0 || requestedSlot < 0
                 || requestedSlot >= craftingGridSnapshot.size()) {
+            if (requestedSlot < 0) {
+                return consumeFromAnyCraftingGridSlot(craftingGridSnapshot, alternatives, wideIngredient, amount,
+                        reservedCraftingGridItems);
+            }
             return 0;
         }
 
@@ -386,6 +390,34 @@ public final class WcwtTerminalPullService {
         int consumed = Math.min(available, amount);
         reservedCraftingGridItems[requestedSlot] += consumed;
         return consumed;
+    }
+
+    private static int consumeFromAnyCraftingGridSlot(List<ItemStack> craftingGridSnapshot, List<ItemStack> alternatives,
+            @Nullable Ingredient wideIngredient, int amount, @Nullable int[] reservedCraftingGridItems) {
+        if (reservedCraftingGridItems == null) {
+            return 0;
+        }
+
+        int matched = 0;
+        for (int slot = 0; slot < craftingGridSnapshot.size(); slot++) {
+            ItemStack stack = craftingGridSnapshot.get(slot);
+            if (stack.isEmpty() || !matchesAnyAlternative(stack, alternatives, wideIngredient)) {
+                continue;
+            }
+
+            int available = stack.getCount() - reservedCraftingGridItems[slot];
+            if (available <= 0) {
+                continue;
+            }
+
+            int consumed = Math.min(available, amount - matched);
+            reservedCraftingGridItems[slot] += consumed;
+            matched += consumed;
+            if (matched >= amount) {
+                return matched;
+            }
+        }
+        return matched;
     }
 
     @Nullable
@@ -436,10 +468,37 @@ public final class WcwtTerminalPullService {
         if (stack.isEmpty()) {
             return ItemStack.EMPTY;
         }
+        if (requestedSlot < 0) {
+            return insertIntoAnyCraftingGridSlot(craftingGrid, stack);
+        }
         if (requestedSlot < 0 || requestedSlot >= craftingGrid.size()) {
             return stack.copy();
         }
         return craftingGrid.insertItem(requestedSlot, stack.copy(), false);
+    }
+
+    private static ItemStack insertIntoAnyCraftingGridSlot(InternalInventory craftingGrid, ItemStack stack) {
+        ItemStack remaining = stack.copy();
+        for (int slot = 0; slot < craftingGrid.size(); slot++) {
+            ItemStack existing = craftingGrid.getStackInSlot(slot);
+            if (!canStacksMerge(existing, remaining)) {
+                continue;
+            }
+            remaining = craftingGrid.insertItem(slot, remaining, false);
+            if (remaining.isEmpty()) {
+                return ItemStack.EMPTY;
+            }
+        }
+        for (int slot = 0; slot < craftingGrid.size(); slot++) {
+            if (!craftingGrid.getStackInSlot(slot).isEmpty()) {
+                continue;
+            }
+            remaining = craftingGrid.insertItem(slot, remaining, false);
+            if (remaining.isEmpty()) {
+                return ItemStack.EMPTY;
+            }
+        }
+        return remaining;
     }
 
     private static ItemStack insertIntoPlayerInventory(Inventory inventory, MEStorageMenu menu, ItemStack stack) {

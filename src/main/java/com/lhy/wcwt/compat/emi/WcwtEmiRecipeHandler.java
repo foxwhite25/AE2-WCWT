@@ -204,6 +204,10 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
             EncodingMode mode = getTransferMode(recipe);
             WcwtManualWorkspaceRecipeSwitch.switchForTransfer(menu, mode);
             List<RequestedIngredient> requestedIngredients = collectRequestedIngredients(menu, recipe);
+            if (mode == EncodingMode.PROCESSING
+                    && menu.getManualWorkspaceMode() == WirelessComprehensiveWorkTerminalMenu.ManualWorkspaceMode.CRAFTING) {
+                requestedIngredients = mergeProcessingIngredients(requestedIngredients);
+            }
             if (requestedIngredients.isEmpty()) {
                 return false;
             }
@@ -548,6 +552,30 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
                 .map(ingredient -> toRequestedIngredient(priorityContext, ingredient, -1))
                 .filter(Objects::nonNull)
                 .toList();
+    }
+
+    private static List<RequestedIngredient> mergeProcessingIngredients(List<RequestedIngredient> ingredients) {
+        List<RequestedIngredient> merged = new ArrayList<>();
+        for (RequestedIngredient ingredient : ingredients) {
+            if (ingredient.alternatives().isEmpty()) {
+                continue;
+            }
+            ItemStack representative = ingredient.alternatives().getFirst();
+            boolean mergedExisting = false;
+            for (int i = 0; i < merged.size(); i++) {
+                RequestedIngredient existing = merged.get(i);
+                if (ItemStack.isSameItemSameComponents(existing.alternatives().getFirst(), representative)) {
+                    merged.set(i, new RequestedIngredient(existing.alternatives(),
+                            existing.count() + ingredient.count(), -1));
+                    mergedExisting = true;
+                    break;
+                }
+            }
+            if (!mergedExisting) {
+                merged.add(new RequestedIngredient(ingredient.alternatives(), ingredient.count(), -1));
+            }
+        }
+        return merged;
     }
 
     @Nullable
