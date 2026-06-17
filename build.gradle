@@ -36,6 +36,24 @@ java {
     withSourcesJar()
 }
 
+configurations {
+    localRuntime {
+        exclude group: "dev.emi"
+        exclude group: "curse.maven", module: "ae2-jei-integration-1074338"
+        exclude group: "curse.maven", module: "imblocker-483760"
+        exclude group: "curse.maven", module: "just-enough-characters-250702"
+    }
+    clientLocalRuntime
+    runtimeClasspath.extendsFrom localRuntime
+}
+
+sourceSets {
+    clientRuntime {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath + sourceSets.main.runtimeClasspath + configurations.clientLocalRuntime
+    }
+}
+
 neoForge {
     version = neo_version
 
@@ -51,17 +69,15 @@ neoForge {
         client {
             client()
             gameDirectory = file('run/client')
+            sourceSet = sourceSets.clientRuntime
+            jvmArguments.add("-Dwcwt.debug.patternUpload=false")
         }
         server {
             server()
             gameDirectory = file('run/server')
+            jvmArguments.add("-Dwcwt.debug.patternUpload=false")
         }
     }
-}
-
-configurations {
-    localRuntime
-    runtimeClasspath.extendsFrom localRuntime
 }
 
 repositories {

@@ -5,6 +5,7 @@ import appeng.api.inventories.InternalInventory;
 import appeng.helpers.patternprovider.PatternContainer;
 import com.lhy.wcwt.WcwtMod;
 import com.lhy.wcwt.client.WirelessComprehensiveWorkTerminalScreen;
+import com.lhy.wcwt.compat.ExtendedAePlusUploadCompat;
 import com.lhy.wcwt.util.PatternProviderSorts;
 import io.netty.buffer.ByteBuf;
 import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
@@ -30,10 +31,9 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
-public record PatternProviderListPacket(List<Entry> entries) implements CustomPacketPayload {
+public record PatternProviderListPacket(List<Entry> entries, String resolvedSearchText) implements CustomPacketPayload {
     private static final boolean DEBUG_PERF = Boolean.getBoolean("wcwt.debug.perf");
 
     public static final Type<PatternProviderListPacket> TYPE =
@@ -43,8 +43,12 @@ public record PatternProviderListPacket(List<Entry> entries) implements CustomPa
             ByteBufCodecs.map(Int2ObjectArrayMap::new, ByteBufCodecs.SHORT.map(Short::intValue, Integer::shortValue),
                     ItemStack.OPTIONAL_STREAM_CODEC, 512);
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, PatternProviderListPacket> STREAM_CODEC =
-            Entry.STREAM_CODEC.apply(ByteBufCodecs.list()).map(PatternProviderListPacket::new, PatternProviderListPacket::entries);
+    public static final StreamCodec<RegistryFriendlyByteBuf, PatternProviderListPacket> STREAM_CODEC = StreamCodec.composite(
+            Entry.STREAM_CODEC.apply(ByteBufCodecs.list()),
+            PatternProviderListPacket::entries,
+            ByteBufCodecs.STRING_UTF8,
+            PatternProviderListPacket::resolvedSearchText,
+            PatternProviderListPacket::new);
 
     @Override
     public Type<? extends CustomPacketPayload> type() {
@@ -58,12 +62,13 @@ public record PatternProviderListPacket(List<Entry> entries) implements CustomPa
     @OnlyIn(Dist.CLIENT)
     private static void handleClient(PatternProviderListPacket packet) {
         if (Minecraft.getInstance().screen instanceof WirelessComprehensiveWorkTerminalScreen screen) {
-            screen.updatePatternProviders(packet.entries());
+            screen.updatePatternProviders(packet.entries(), packet.resolvedSearchText());
         }
     }
 
     public record Entry(long providerId,
                         PatternContainerGroup group,
+                        String mappedDisplayName,
                         int inventorySize,
                         Int2ObjectMap<ItemStack> slots,
                         @Nullable BlockPos pos,
@@ -76,17 +81,19 @@ public record PatternProviderListPacket(List<Entry> entries) implements CustomPa
         private static Entry read(RegistryFriendlyByteBuf buf) {
             long providerId = buf.readVarLong();
             PatternContainerGroup group = PatternContainerGroup.readFromPacket(buf);
+            String mappedDisplayName = buf.readUtf();
             int inventorySize = buf.readVarInt();
             var slots = SLOTS_CODEC.decode(buf);
             BlockPos pos = buf.readBoolean() ? BlockPos.of(buf.readLong()) : null;
             ResourceKey<Level> dimension = buf.readBoolean() ? buf.readResourceKey(Registries.DIMENSION) : null;
             Direction face = buf.readBoolean() ? buf.readEnum(Direction.class) : null;
-            return new Entry(providerId, group, inventorySize, slots, pos, dimension, face);
+            return new Entry(providerId, group, mappedDisplayName, inventorySize, slots, pos, dimension, face);
         }
 
         private void write(RegistryFriendlyByteBuf buf) {
             buf.writeVarLong(providerId);
             group.writeToPacket(buf);
+            buf.writeUtf(mappedDisplayName);
             buf.writeVarInt(inventorySize);
             SLOTS_CODEC.encode(buf, slots);
             buf.writeBoolean(pos != null);
@@ -104,12 +111,14 @@ public record PatternProviderListPacket(List<Entry> entries) implements CustomPa
         }
     }
 
-    public record Request(boolean subscribe) implements CustomPacketPayload {
+    public record Request(boolean subscribe, String searchText) implements CustomPacketPayload {
         public static final Type<Request> TYPE =
                 new Type<>(ResourceLocation.fromNamespaceAndPath(WcwtMod.MOD_ID, "pattern_provider_list_request"));
         public static final StreamCodec<ByteBuf, Request> STREAM_CODEC = StreamCodec.composite(
                 ByteBufCodecs.BOOL,
                 Request::subscribe,
+                ByteBufCodecs.STRING_UTF8,
+                Request::searchText,
                 Request::new);
 
         @Override
@@ -127,26 +136,31 @@ public record PatternProviderListPacket(List<Entry> entries) implements CustomPa
                             return;
                         }
                     }
-                    PacketDistributor.sendToPlayer(player, buildForPlayer(player));
+                    PacketDistributor.sendToPlayer(player, buildForPlayer(player, packet.searchText));
                 }
             });
         }
     }
 
     public static PatternProviderListPacket buildForPlayer(ServerPlayer player) {
+        return buildForPlayer(player, "");
+    }
+
+    public static PatternProviderListPacket buildForPlayer(ServerPlayer player, String searchText) {
         long totalStartNs = DEBUG_PERF ? System.nanoTime() : 0L;
+        String resolvedSearchText = ExtendedAePlusBridge.resolveSearchKeyAlias(searchText);
         var entries = new ArrayList<Entry>();
         var menu = player.containerMenu;
         if (!(menu instanceof appeng.menu.AEBaseMenu baseMenu)) {
-            return new PatternProviderListPacket(List.of());
+            return new PatternProviderListPacket(List.of(), resolvedSearchText);
         }
         var target = baseMenu.getTarget();
         if (!(target instanceof appeng.api.networking.security.IActionHost host) || host.getActionableNode() == null) {
-            return new PatternProviderListPacket(List.of());
+            return new PatternProviderListPacket(List.of(), resolvedSearchText);
         }
         var grid = host.getActionableNode().getGrid();
         if (grid == null) {
-            return new PatternProviderListPacket(List.of());
+            return new PatternProviderListPacket(List.of(), resolvedSearchText);
         }
 
         var providers = new ArrayList<PatternContainer>();
@@ -190,7 +204,7 @@ public record PatternProviderListPacket(List<Entry> entries) implements CustomPa
                 }
             }
             var location = getLocation(container);
-            entries.add(new Entry(id++, container.getTerminalGroup(), inv.size(), slots,
+            entries.add(new Entry(id++, container.getTerminalGroup(), getMappedProviderDisplayName(container), inv.size(), slots,
                     location.pos, location.dimension, location.face));
         }
 
@@ -206,7 +220,7 @@ public record PatternProviderListPacket(List<Entry> entries) implements CustomPa
                     copiedNonEmptySlots);
         }
 
-        return new PatternProviderListPacket(entries);
+        return new PatternProviderListPacket(entries, resolvedSearchText);
     }
 
     private static Location getLocation(PatternContainer container) {
@@ -217,6 +231,17 @@ public record PatternProviderListPacket(List<Entry> entries) implements CustomPa
             return new Location(part.getBlockEntity().getBlockPos(), part.getLevel().dimension(), part.getSide());
         }
         return new Location(null, null, null);
+    }
+
+    private static String getMappedProviderDisplayName(PatternContainer provider) {
+        return "";
+    }
+
+    private static final class ExtendedAePlusBridge {
+        static String resolveSearchKeyAlias(String rawKey) {
+            String resolved = ExtendedAePlusUploadCompat.resolveSearchKeyAlias(rawKey);
+            return resolved == null ? "" : resolved;
+        }
     }
 
     private record Location(@Nullable BlockPos pos, @Nullable ResourceKey<Level> dimension, @Nullable Direction face) {

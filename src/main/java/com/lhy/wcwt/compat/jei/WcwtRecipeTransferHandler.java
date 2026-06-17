@@ -7,6 +7,7 @@ import appeng.integration.modules.itemlists.EncodingHelper;
 import appeng.parts.encoding.EncodingMode;
 import appeng.util.CraftingRecipeUtil;
 import com.simibubi.create.content.processing.basin.BasinRecipe;
+import com.lhy.wcwt.compat.ExtendedAePlusUploadCompat;
 import com.lhy.wcwt.compat.WcwtManualWorkspaceRecipeSwitch;
 import com.lhy.wcwt.config.WcwtClientConfig;
 import com.lhy.wcwt.init.ModMenus;
@@ -147,31 +148,17 @@ public class WcwtRecipeTransferHandler
     }
 
     public static void updateEaepProviderSearchKey(Object recipeBase, @Nullable Recipe<?> recipe, EncodingMode mode) {
-        try {
-            Class<?> utilClass = Class.forName("com.extendedae_plus.util.uploadPattern.ExtendedAEPatternUploadUtil");
-            if (mode != EncodingMode.PROCESSING) {
-                utilClass.getMethod("presetCraftingProviderSearchKey").invoke(null);
-                return;
-            }
+        if (mode != EncodingMode.PROCESSING) {
+            ExtendedAePlusUploadCompat.presetCraftingProviderSearchKey();
+            return;
+        }
 
-            String name = null;
-            if (recipe != null) {
-                Object value = utilClass.getMethod("mapRecipeTypeToSearchKey", Recipe.class).invoke(null, recipe);
-                if (value instanceof String text) {
-                    name = text;
-                }
-            }
-            if ((name == null || name.isBlank()) && recipeBase != null) {
-                Object value = utilClass.getMethod("deriveSearchKeyFromUnknownRecipe", Object.class).invoke(null,
-                        recipeBase);
-                if (value instanceof String text) {
-                    name = text;
-                }
-            }
-            if (name != null && !name.isBlank()) {
-                utilClass.getMethod("setLastProcessingName", String.class).invoke(null, name);
-            }
-        } catch (Throwable ignored) {
+        String name = ExtendedAePlusUploadCompat.mapRecipeTypeToSearchKey(recipe);
+        if ((name == null || name.isBlank()) && recipeBase != null) {
+            name = ExtendedAePlusUploadCompat.deriveSearchKeyFromUnknownRecipe(recipeBase);
+        }
+        if (name != null && !name.isBlank()) {
+            ExtendedAePlusUploadCompat.setLastProviderSearchKey(name);
         }
     }
 

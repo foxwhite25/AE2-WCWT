@@ -14,9 +14,12 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 public record EncodePatternPacket(EncodingMode mode,
                                   boolean uploadEnabled,
                                   String providerSearchText,
+                                  long preferredProviderId,
+                                  String uploadProviderName,
                                   boolean fallbackToEditSlot)
         implements CustomPacketPayload {
     private static final boolean DEBUG_ENCODE = Boolean.getBoolean("wcwt.debug.encode");
+    private static final boolean DEBUG_PATTERN_UPLOAD = Boolean.getBoolean("wcwt.debug.patternUpload");
     public static final CustomPacketPayload.Type<EncodePatternPacket> TYPE =
             new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(WcwtMod.MOD_ID, "encode_pattern"));
     private static final StreamCodec<ByteBuf, EncodingMode> MODE_STREAM_CODEC =
@@ -28,12 +31,16 @@ public record EncodePatternPacket(EncodingMode mode,
             EncodePatternPacket::uploadEnabled,
             ByteBufCodecs.STRING_UTF8,
             EncodePatternPacket::providerSearchText,
+            ByteBufCodecs.VAR_LONG,
+            EncodePatternPacket::preferredProviderId,
+            ByteBufCodecs.STRING_UTF8,
+            EncodePatternPacket::uploadProviderName,
             ByteBufCodecs.BOOL,
             EncodePatternPacket::fallbackToEditSlot,
             EncodePatternPacket::new);
 
     public EncodePatternPacket(EncodingMode mode) {
-        this(mode, false, "", false);
+        this(mode, false, "", -1, "", false);
     }
 
     @Override
@@ -42,14 +49,16 @@ public record EncodePatternPacket(EncodingMode mode,
     }
 
     public static void handle(EncodePatternPacket packet, IPayloadContext context) {
-        if (DEBUG_ENCODE) {
-            WcwtMod.LOGGER.info("WCWT encode debug: packet received, mode={}, player={}",
-                    packet.mode(), context.player().getName().getString());
+        if (DEBUG_ENCODE || DEBUG_PATTERN_UPLOAD) {
+            WcwtMod.LOGGER.info(
+                    "WCWT encode debug: packet received, mode={}, uploadEnabled={}, providerSearchText={}, preferredProviderId={}, uploadProviderName={}, fallbackToEditSlot={}, player={}",
+                    packet.mode(), packet.uploadEnabled(), packet.providerSearchText(), packet.preferredProviderId(),
+                    packet.uploadProviderName(), packet.fallbackToEditSlot(), context.player().getName().getString());
         }
         context.enqueueWork(() -> {
             if (context.player().containerMenu instanceof WirelessComprehensiveWorkTerminalMenu menu) {
                 menu.encodePattern(packet.mode(), packet.uploadEnabled(), packet.providerSearchText(),
-                        packet.fallbackToEditSlot());
+                        packet.preferredProviderId(), packet.uploadProviderName(), packet.fallbackToEditSlot());
             } else if (DEBUG_ENCODE) {
                 WcwtMod.LOGGER.info("WCWT encode debug: packet ignored, current menu={}",
                         context.player().containerMenu == null ? "null" : context.player().containerMenu.getClass().getName());

@@ -1,6 +1,7 @@
 package com.lhy.wcwt.util;
 
 import com.lhy.wcwt.init.ModComponents;
+import com.lhy.wcwt.compat.ExtendedAePlusPatternMetadata;
 import net.minecraft.world.item.ItemStack;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,7 +36,7 @@ public final class PatternUploadMetadata {
         }
         ItemStack copy = stack.copy();
         copy.remove(ModComponents.PATTERN_UPLOAD_DATA.get());
-        return copy;
+        return ExtendedAePlusPatternMetadata.copyWithoutEncoder(copy);
     }
 
     public static boolean isSamePatternIgnoringUploadData(ItemStack first, ItemStack second) {

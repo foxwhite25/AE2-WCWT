@@ -31,15 +31,15 @@ dependencies {
 
     // Local runtime recipe viewers
     localRuntime "mezz.jei:jei-${minecraft_version}-neoforge:${jei_version}"
-    // Temporarily disabled; uncomment to restore EMI in local runtime.
-    // localRuntime "dev.emi:emi-neoforge:${emi_version}"
+    // Temporarily disabled; uncomment to restore EMI in local client runtime.
+    // clientLocalRuntime "dev.emi:emi-neoforge:${emi_version}"
 
     // Local runtime AE2 addons
     localRuntime "curse.maven:advancedae-1084104:${advancedae_file}"
+    localRuntime "curse.maven:ae2-crystal-science-1435174:8112039"
     localRuntime "curse.maven:ex-pattern-provider-892005:${extendedae_file}"
     localRuntime "curse.maven:extendedae-plus-1337639:${extendedae_plus_file}"
     localRuntime "curse.maven:applied-energistics-2-wireless-terminals-459929:${ae2wt_terminals_file}"
-    localRuntime "curse.maven:ae2-jei-integration-1074338:${ae2jei_integration_file}"
     localRuntime "curse.maven:applied-flux-965012:${applied_flux_file}"
     localRuntime "curse.maven:applied-create-1474758:${applied_create_file}"
     localRuntime "curse.maven:mega-cells-622112:${mega_cells_file}"
@@ -49,13 +49,6 @@ dependencies {
     localRuntime "curse.maven:glodium-957920:${glodium_file}"
     localRuntime "curse.maven:geckolib-388172:${geckolib_file}"
     localRuntime "curse.maven:cloth-config-348521:${cloth_config_file}"
-    localRuntime "curse.maven:modern-ui-352491:${modern_ui_file}"
-    localRuntime "curse.maven:mouse-tweaks-60089:${mouse_tweaks_file}"
-    localRuntime "curse.maven:configured-457570:${configured_file}"
-    localRuntime "curse.maven:searchables-858542:${searchables_file}"
-    localRuntime "curse.maven:controlling-250398:${controlling_file}"
-    localRuntime "curse.maven:imblocker-483760:${imblocker_file}"
-    localRuntime "curse.maven:just-enough-characters-250702:${jech_file}"
     localRuntime "curse.maven:polymorph-388800:${polymorph_file}"
     localRuntime "dev.architectury:architectury-neoforge:${architectury_version}"
     localRuntime "dev.ftb.mods:ftb-library-neoforge:${ftb_library_version}"
@@ -69,4 +62,14 @@ dependencies {
     localRuntime "curse.maven:mekanism-268560:${mekanism_file}"
     localRuntime "me.desht.pneumaticcraft:pneumaticcraft-repressurized:${pneumaticcraft_version}"
     localRuntime "thedarkcolour:kotlinforforge-neoforge:${kotlinforforge_version}"
+
+    // Client-only local runtime UI and input helpers
+    clientLocalRuntime "curse.maven:ae2-jei-integration-1074338:${ae2jei_integration_file}"
+    clientLocalRuntime "curse.maven:modern-ui-352491:${modern_ui_file}"
+    clientLocalRuntime "curse.maven:mouse-tweaks-60089:${mouse_tweaks_file}"
+    clientLocalRuntime "curse.maven:configured-457570:${configured_file}"
+    clientLocalRuntime "curse.maven:searchables-858542:${searchables_file}"
+    clientLocalRuntime "curse.maven:controlling-250398:${controlling_file}"
+    clientLocalRuntime "curse.maven:imblocker-483760:${imblocker_file}"
+    clientLocalRuntime "curse.maven:just-enough-characters-250702:${jech_file}"
 }
