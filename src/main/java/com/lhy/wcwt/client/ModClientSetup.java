@@ -2,6 +2,7 @@ package com.lhy.wcwt.client;
 
 import com.lhy.wcwt.WcwtMod;
 import com.lhy.wcwt.compat.InventoryProfilesNextCompat;
+import com.lhy.wcwt.compat.WcwtPolymorphClientCompat;
 import com.lhy.wcwt.init.ModMenus;
 import com.lhy.wcwt.menu.WirelessComprehensiveWorkTerminalMenu;
 import com.lhy.wcwt.network.CraftingLockPacket;
@@ -34,6 +35,7 @@ public class ModClientSetup {
                 "/screens/wtlib/magnet.json");
         InitScreens.register(event, ModMenus.WCWT_TRASH_MENU.get(), WcwtTrashScreen::new,
                 "/screens/wtlib/trash.json");
+        WcwtPolymorphClientCompat.registerWidgets();
     }
 
     @SubscribeEvent

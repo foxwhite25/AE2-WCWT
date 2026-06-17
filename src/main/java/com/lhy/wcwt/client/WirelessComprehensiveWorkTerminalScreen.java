@@ -2403,8 +2403,15 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                     new ExtendedPanelLayout.Rect(192, imageHeight - 216, 18, 18), imageWidth, imageHeight);
             var outputBase = mainLayout.slot("PROCESSING_OUTPUTS",
                     new ExtendedPanelLayout.Rect(277, imageHeight - 216, 18, 18), imageWidth, imageHeight);
-            slot.x = outputBase.left() - (patternEncodingMode == EncodingMode.CRAFTING ? 4 : 0);
-            slot.y = inputBase.top() + 18;
+            if (patternEncodingMode == EncodingMode.CRAFTING) {
+                var craftingResult = mainLayout.widget("pattern_crafting_result_slot",
+                        new ExtendedPanelLayout.Rect(275, imageHeight - 195, 18, 18), imageWidth, imageHeight);
+                slot.x = craftingResult.left();
+                slot.y = craftingResult.top();
+            } else {
+                slot.x = outputBase.left();
+                slot.y = inputBase.top() + 18;
+            }
         } else {
             hidePatternEncodingSlot(slot);
         }

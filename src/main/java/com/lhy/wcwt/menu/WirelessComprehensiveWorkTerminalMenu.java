@@ -37,6 +37,7 @@ import com.lhy.wcwt.client.gui.widgets.PatternMultiplierButton;
 import com.lhy.wcwt.compat.CosmeticArmorReworkedBridge;
 import com.lhy.wcwt.compat.CuriosBridge;
 import com.lhy.wcwt.compat.JecSearchCompat;
+import com.lhy.wcwt.compat.WcwtPolymorphCompat;
 import com.lhy.wcwt.helpers.ToolkitItemRules;
 import com.lhy.wcwt.helpers.WirelessComprehensiveWorkTerminalMenuHost;
 import com.lhy.wcwt.init.ModMenus;
@@ -1052,6 +1053,10 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             this.createResult();
         }
 
+        private void setSelectedRecipe(@Nullable RecipeHolder<SmithingRecipe> recipe) {
+            setSmithingMenuSelectedRecipe(this, recipe);
+        }
+
         private boolean mayPickupResult(Player player) {
             return this.getSlot(3).mayPickup(player);
         }
@@ -1333,9 +1338,11 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     public void slotsChanged(Container inventory) {
         super.slotsChanged(inventory);
         updateManualWorkspaceResults();
+        updatePatternPreview(getPatternEncodingMode());
     }
 
     private void updateManualWorkspaceResults() {
+        updateManualCraftingResult();
         updateManualSmithingResult();
         updateManualAnvilResult();
     }
@@ -1377,6 +1384,30 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         }
     }
 
+    private void updateManualCraftingResult() {
+        if (getManualWorkspaceMode() != ManualWorkspaceMode.CRAFTING) {
+            return;
+        }
+
+        var ingredients = new ArrayList<ItemStack>(9);
+        for (Slot slot : getSlots(SlotSemantics.CRAFTING_GRID)) {
+            ingredients.add(slot.getItem().copy());
+        }
+
+        var input = CraftingInput.of(3, 3, ingredients);
+        var level = getPlayer().level();
+        RecipeHolder<CraftingRecipe> recipe =
+                WcwtPolymorphCompat.getCraftingRecipe(this, input, level, getPlayer()).orElse(null);
+        setCraftingTermCurrentRecipe(this, recipe);
+
+        ItemStack result = recipe == null
+                ? ItemStack.EMPTY
+                : recipe.value().assemble(input, level.registryAccess());
+        for (Slot slot : getSlots(SlotSemantics.CRAFTING_RESULT)) {
+            slot.set(result.copy());
+        }
+    }
+
     private void updateManualSmithingResult() {
         if (menuHost == null) {
             return;
@@ -1386,6 +1417,35 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             return;
         }
         manualSmithingBridge.syncFrom(inv);
+        updateManualSmithingPolymorphResult(inv);
+    }
+
+    private void updateManualSmithingPolymorphResult(InternalInventory inventory) {
+        if (getManualWorkspaceMode() != ManualWorkspaceMode.SMITHING) {
+            return;
+        }
+        var input = new SmithingRecipeInput(
+                inventory.getStackInSlot(0).copy(),
+                inventory.getStackInSlot(1).copy(),
+                inventory.getStackInSlot(2).copy());
+        var level = getPlayer().level();
+        RecipeHolder<SmithingRecipe> recipe =
+                WcwtPolymorphCompat.getSmithingRecipe(this, input, level, getPlayer()).orElse(null);
+        if (recipe == null) {
+            manualSmithingBridge.setSelectedRecipe(null);
+            manualSmithingBridge.getResultContainer().setItem(0, ItemStack.EMPTY);
+            return;
+        }
+
+        ItemStack result = recipe.value().assemble(input, level.registryAccess());
+        if (!result.isItemEnabled(level.enabledFeatures())) {
+            manualSmithingBridge.setSelectedRecipe(null);
+            manualSmithingBridge.getResultContainer().setItem(0, ItemStack.EMPTY);
+            return;
+        }
+        manualSmithingBridge.setSelectedRecipe(recipe);
+        manualSmithingBridge.getResultContainer().setRecipeUsed(recipe);
+        manualSmithingBridge.getResultContainer().setItem(0, result);
     }
 
     private void updateManualAnvilResult() {
@@ -2256,7 +2316,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         }
         var input = CraftingInput.of(3, 3, java.util.Arrays.asList(ingredients));
         var level = getPlayer().level();
-        var recipe = level.getRecipeManager().getRecipeFor(RecipeType.CRAFTING, input, level).orElse(null);
+        var recipe = WcwtPolymorphCompat.getCraftingRecipe(this, input, level, getPlayer()).orElse(null);
         return recipe != null ? recipe.id() : null;
     }
 
@@ -2270,7 +2330,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         }
         var input = new SmithingRecipeInput(template.toStack(), base.toStack(), addition.toStack());
         var level = getPlayer().level();
-        var recipe = level.getRecipeManager().getRecipeFor(RecipeType.SMITHING, input, level).orElse(null);
+        var recipe = WcwtPolymorphCompat.getSmithingRecipe(this, input, level, getPlayer()).orElse(null);
         return recipe != null ? recipe.id() : null;
     }
 
@@ -2684,22 +2744,25 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
 
     private ItemStack getCraftingPatternPreview() {
         var ingredients = new ItemStack[9];
+        boolean valid = false;
         for (int slot = 0; slot < ingredients.length; slot++) {
             GenericStack stack = patternEncodingLogic.getEncodedInputInv().getStack(slot);
             if (stack == null) {
                 ingredients[slot] = ItemStack.EMPTY;
             } else if (stack.what() instanceof AEItemKey itemKey) {
                 ingredients[slot] = itemKey.toStack(1);
+                valid = true;
             } else {
                 return ItemStack.EMPTY;
             }
         }
+        if (!valid) {
+            return ItemStack.EMPTY;
+        }
 
         var input = CraftingInput.of(3, 3, java.util.Arrays.asList(ingredients));
         var level = getPlayer().level();
-        var recipe = level.getRecipeManager()
-                .getRecipeFor(RecipeType.CRAFTING, input, level)
-                .orElse(null);
+        var recipe = WcwtPolymorphCompat.getCraftingRecipe(this, input, level, getPlayer()).orElse(null);
         return recipe == null ? ItemStack.EMPTY : recipe.value().assemble(input, level.registryAccess());
     }
 
@@ -2712,7 +2775,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
 
         var input = new SmithingRecipeInput(template.toStack(), base.toStack(), addition.toStack());
         var level = getPlayer().level();
-        var recipe = level.getRecipeManager().getRecipeFor(RecipeType.SMITHING, input, level).orElse(null);
+        var recipe = WcwtPolymorphCompat.getSmithingRecipe(this, input, level, getPlayer()).orElse(null);
         return recipe == null ? ItemStack.EMPTY : recipe.value().assemble(input, level.registryAccess());
     }
 
@@ -2759,9 +2822,8 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
 
         var input = CraftingInput.of(3, 3, java.util.Arrays.asList(ingredients));
         var level = getPlayer().level();
-        RecipeHolder<CraftingRecipe> recipe = level.getRecipeManager()
-                .getRecipeFor(RecipeType.CRAFTING, input, level)
-                .orElse(null);
+        RecipeHolder<CraftingRecipe> recipe =
+                WcwtPolymorphCompat.getCraftingRecipe(this, input, level, getPlayer()).orElse(null);
         if (recipe == null) {
             logEncode("crafting recipe not found, ingredients={}",
                     java.util.Arrays.toString(ingredients));
@@ -2789,7 +2851,7 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
 
         var input = new SmithingRecipeInput(template.toStack(), base.toStack(), addition.toStack());
         var level = getPlayer().level();
-        var recipe = level.getRecipeManager().getRecipeFor(RecipeType.SMITHING, input, level).orElse(null);
+        var recipe = WcwtPolymorphCompat.getSmithingRecipe(this, input, level, getPlayer()).orElse(null);
         if (recipe == null) {
             logEncode("smithing recipe not found, template={}, base={}, addition={}",
                     template, base, addition);
@@ -4870,6 +4932,8 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     }
 
     private static volatile Field craftingRecipeHolderField;
+    private static volatile Field craftingTermCurrentRecipeField;
+    private static volatile Field smithingMenuSelectedRecipeField;
 
     @SuppressWarnings("unchecked")
     @Nullable
@@ -4887,6 +4951,34 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
                     : null;
         } catch (ReflectiveOperationException ignored) {
             return null;
+        }
+    }
+
+    private static void setCraftingTermCurrentRecipe(CraftingTermMenu menu,
+                                                     @Nullable RecipeHolder<CraftingRecipe> recipe) {
+        try {
+            var field = craftingTermCurrentRecipeField;
+            if (field == null) {
+                field = CraftingTermMenu.class.getDeclaredField("currentRecipe");
+                field.setAccessible(true);
+                craftingTermCurrentRecipeField = field;
+            }
+            field.set(menu, recipe);
+        } catch (ReflectiveOperationException | SecurityException ignored) {
+        }
+    }
+
+    private static void setSmithingMenuSelectedRecipe(SmithingMenu menu,
+                                                      @Nullable RecipeHolder<SmithingRecipe> recipe) {
+        try {
+            var field = smithingMenuSelectedRecipeField;
+            if (field == null) {
+                field = SmithingMenu.class.getDeclaredField("selectedRecipe");
+                field.setAccessible(true);
+                smithingMenuSelectedRecipeField = field;
+            }
+            field.set(menu, recipe);
+        } catch (ReflectiveOperationException | SecurityException ignored) {
         }
     }
 }

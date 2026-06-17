@@ -253,7 +253,7 @@
     },
     "viewCells": {
       "$comment": "AE2 原版显示元件面板；左上角紧靠右侧量子桥/升级面板右上角。",
-      "right": -28,
+      "right": -25,
       "top": 0
     },
     "scrollbar": {
@@ -434,7 +434,14 @@
     "manual_smithing_result_slot": {
       "$comment": "左上手动锻造台结果槽定位节点，仅供 Java 读取。",
       "left": 149,
-      "bottom": 196,
+      "bottom": 197,
+      "width": 18,
+      "height": 18
+    },
+    "pattern_crafting_result_slot": {
+      "$comment": "样板编码区合成样板结果槽定位节点，仅供 Java 读取。",
+      "left": 274,
+      "bottom": 198,
       "width": 18,
       "height": 18
     },
@@ -759,7 +766,7 @@
     "manage_scrollbar": {
       "$comment": "样板管理区供应器/样板列表滑块。",
       "left": 343,
-      "bottom": 84,
+      "bottom": 82,
       "height": 72
     },
     "pinned_row_overlay": {

@@ -20,6 +20,7 @@ dependencies {
     compileOnly "com.simibubi.create:create-1.21.1:${create_version}"
     compileOnly "mekanism:Mekanism:${mekanism_version}"
     compileOnly "top.theillusivec4.curios:curios-neoforge:${curios_version}"
+    compileOnly "curse.maven:polymorph-388800:${polymorph_file}"
 
     // Local runtime core mods
     localRuntime "org.appliedenergistics:appliedenergistics2:${ae2_version}"
@@ -55,6 +56,7 @@ dependencies {
     localRuntime "curse.maven:controlling-250398:${controlling_file}"
     localRuntime "curse.maven:imblocker-483760:${imblocker_file}"
     localRuntime "curse.maven:just-enough-characters-250702:${jech_file}"
+    localRuntime "curse.maven:polymorph-388800:${polymorph_file}"
     localRuntime "dev.architectury:architectury-neoforge:${architectury_version}"
     localRuntime "dev.ftb.mods:ftb-library-neoforge:${ftb_library_version}"
     localRuntime "dev.ftb.mods:ftb-ultimine-neoforge:${ftb_ultimine_version}"
