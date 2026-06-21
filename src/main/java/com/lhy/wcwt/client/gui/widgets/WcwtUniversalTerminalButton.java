@@ -4,18 +4,22 @@ import appeng.api.implementations.menuobjects.ItemMenuHost;
 import appeng.client.gui.widgets.ITooltip;
 import appeng.menu.AEBaseMenu;
 import appeng.menu.locator.MenuHostLocator;
+import com.lhy.wcwt.WcwtMod;
 import com.lhy.wcwt.init.ModItems;
 import com.lhy.wcwt.network.SwitchUniversalTerminalPacket;
 import com.lhy.wcwt.network.SwitchUniversalTerminalPacket.Action;
+import com.lhy.wcwt.universal.WcwtItemIds;
 import com.lhy.wcwt.universal.WcwtUniversalTerminals;
 import de.mari_023.ae2wtlib.api.TextConstants;
 import de.mari_023.ae2wtlib.api.gui.Icon;
 import de.mari_023.ae2wtlib.api.registration.WTDefinition;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.renderer.Rect2i;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -24,6 +28,11 @@ import java.util.List;
 import java.util.Optional;
 
 public class WcwtUniversalTerminalButton extends Button implements ITooltip {
+    private static final ResourceLocation WIRELESS_TERMINAL_SWITCH_ICON =
+            ResourceLocation.fromNamespaceAndPath(WcwtMod.MOD_ID, "textures/guis/wireless_terminal_switch_button.png");
+    private static final ResourceLocation WCWT_TERMINAL_SWITCH_ICON =
+            ResourceLocation.fromNamespaceAndPath(WcwtMod.MOD_ID, "textures/guis/wcwt_terminal_switch_button.png");
+
     private final AEBaseMenu autoRefreshMenu;
     private WcwtUniversalTerminals.SwitchTarget nextTarget;
     private WcwtUniversalTerminals.SwitchTarget previousTarget;
@@ -101,6 +110,15 @@ public class WcwtUniversalTerminalButton extends Button implements ITooltip {
             return;
         }
 
+        ResourceLocation customIcon = customIconTextureFor(nextTarget);
+        if (customIcon != null) {
+            guiGraphics.pose().pushPose();
+            guiGraphics.pose().translate(0, 0, 4);
+            guiGraphics.blit(customIcon, getX(), getY() + 1 + yOffset, 0, 0, 16, 16, 16, 16);
+            guiGraphics.pose().popPose();
+            return;
+        }
+
         Optional<Icon> icon = iconFor(nextTarget);
         if (icon.isPresent()) {
             icon.get().getBlitter()
@@ -166,6 +184,22 @@ public class WcwtUniversalTerminalButton extends Button implements ITooltip {
                             && screen.isHandlingRightClick()
                     ? Action.PREVIOUS
                     : Action.NEXT;
+        }
+        return null;
+    }
+
+    private ResourceLocation customIconTextureFor(WcwtUniversalTerminals.SwitchTarget target) {
+        if (target.isBaseTerminal()) {
+            return WCWT_TERMINAL_SWITCH_ICON;
+        }
+
+        ItemStack stack = target.displayStack();
+        if (!stack.isEmpty()) {
+            ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+            if (WcwtItemIds.AE2_WIRELESS_TERMINAL.equals(id)
+                    || id.getPath().contains("wireless_terminal")) {
+                return WIRELESS_TERMINAL_SWITCH_ICON;
+            }
         }
         return null;
     }

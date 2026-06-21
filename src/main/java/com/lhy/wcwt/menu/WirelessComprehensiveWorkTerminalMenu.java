@@ -205,6 +205,17 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     private long patternProviderSyncSubscriptionUntilTick;
     private long lastPatternProviderRequestTick = Long.MIN_VALUE;
     private long lastInventorySyncTick = Long.MIN_VALUE;
+    /**
+     * {@link #listUploadProviders(boolean)} 的「同一服务端 tick 内」缓存。
+     * 原因：vanilla {@code AbstractContainerMenu.broadcastChanges()} 每 tick 会遍历所有槽位调用
+     * {@code slot.getItem()}，而 {@link PatternProviderSlot#getItem()} 会走 {@link #listUploadProviders(boolean)}
+     * 做一次全网机器扫描 + 排序。36 个供应器槽 × 每 tick = 36 次全网扫描，大型网络下是 20~80ms 的主线程开销。
+     * 同一 tick 内网络拓扑不会变，缓存到当前 gameTime 即可把 36 次压成 1 次。
+     * 只缓存 {@code requireAvailableSlots=false} 这一热点变体；元件 ItemStack 仍由 getItem() 实时读取，不受影响。
+     */
+    private long cachedUploadProvidersTick = Long.MIN_VALUE;
+    @Nullable
+    private List<PatternContainer> cachedUploadProviders;
     private boolean initializingMenu = true;
     private final ManualSmithingMenuBridge manualSmithingBridge;
     private final ManualAnvilMenuBridge manualAnvilBridge;
@@ -851,13 +862,13 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             this.clientDisplayDirty = false;
         }
 
-        private void setMapping(long providerId, int providerSlot) {
+        public void setMapping(long providerId, int providerSlot) {
             this.providerId = providerId;
             this.providerSlot = providerSlot;
             this.active = providerId > 0 && providerSlot >= 0;
         }
 
-        private void clearMapping() {
+        public void clearMapping() {
             this.providerId = -1L;
             this.providerSlot = -1;
             this.clientDisplayStack = ItemStack.EMPTY;
@@ -1986,6 +1997,26 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     }
 
     private List<PatternContainer> listUploadProviders(boolean requireAvailableSlots) {
+        // requireAvailableSlots=true 的变体依赖每槽空位实时计数，不缓存，直接重新扫描。
+        if (requireAvailableSlots) {
+            return scanUploadProviders(true);
+        }
+        // 热点路径（broadcastChanges 每 tick 经由 PatternProviderSlot.getItem() 调用 36 次）：
+        // 同一服务端 tick 内复用上一次扫描结果，把全网扫描从 36 次/tick 压成 1 次/tick。
+        if (isServerSide() && getPlayer() != null) {
+            long tick = getPlayer().level().getGameTime();
+            if (cachedUploadProviders != null && cachedUploadProvidersTick == tick) {
+                return cachedUploadProviders;
+            }
+            List<PatternContainer> providers = scanUploadProviders(false);
+            cachedUploadProviders = providers;
+            cachedUploadProvidersTick = tick;
+            return providers;
+        }
+        return scanUploadProviders(false);
+    }
+
+    private List<PatternContainer> scanUploadProviders(boolean requireAvailableSlots) {
         var grid = getMenuGrid();
         if (grid == null) {
             return List.of();
@@ -3452,6 +3483,31 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         return getSlots(WcwtSlotSemantics.AE_CURIOS).contains(slot);
     }
 
+    private boolean isExtendedUiSlotUnavailable(@Nullable appeng.menu.SlotSemantic semantic) {
+        if (menuHost == null) {
+            return false;
+        }
+        var currentUI = menuHost.getCurrentExtendedUI();
+        if (semantic == WcwtSlotSemantics.WCWT_TOOLKIT) {
+            return currentUI != IExtendedUIHost.ExtendedUIType.TOOLKIT;
+        }
+        if (semantic == WcwtSlotSemantics.AE_CURIOS) {
+            return currentUI != IExtendedUIHost.ExtendedUIType.CURIOS;
+        }
+        if (isDecorativeArmorSemantic(semantic)) {
+            return currentUI != IExtendedUIHost.ExtendedUIType.COSMETIC_ARMOR;
+        }
+        if (semantic == WcwtSlotSemantics.COPY_PATTERN
+                || semantic == WcwtSlotSemantics.WCWT_STORAGE_CELL
+                || semantic == WcwtSlotSemantics.WCWT_CELL_UPGRADE) {
+            return currentUI != IExtendedUIHost.ExtendedUIType.ADVANCED_CODING;
+        }
+        if (semantic == WcwtSlotSemantics.WCWT_RESONATING_STORAGE) {
+            return currentUI != IExtendedUIHost.ExtendedUIType.RESONATING_LIGHTNING_PATTERN_CODING;
+        }
+        return false;
+    }
+
     private ItemStack tryToolkitQuickMoveShortcuts(Player player, Slot sourceSlot, ItemStack sourceStack) {
         if (isClientSide()) {
             return ItemStack.EMPTY;
@@ -3524,6 +3580,9 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
                 && isManualSmithingOrAnvilInputSemantic(candidateSemantic)) {
             return false;
         }
+        if (isExtendedUiSlotUnavailable(candidateSemantic)) {
+            return false;
+        }
         if (!super.isValidQuickMoveDestination(candidateSlot, stackToMove, fromPlayerSide)) {
             if (DEBUG_QUICKMOVE_UPGRADE && isUpgradeLikeSemantic(getSlotSemantic(candidateSlot))) {
                 logQuickMoveUpgrade("reject(super) fromPlayerSide={}, moving={}, candidate={}",
@@ -3541,15 +3600,6 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
         }
 
         var semantic = candidateSemantic;
-        if (semantic == WcwtSlotSemantics.WCWT_TOOLKIT
-                && menuHost.getCurrentExtendedUI() != IExtendedUIHost.ExtendedUIType.TOOLKIT) {
-            return false;
-        }
-        if (isDecorativeArmorSemantic(semantic)
-                && menuHost.getCurrentExtendedUI() != IExtendedUIHost.ExtendedUIType.COSMETIC_ARMOR) {
-            return false;
-        }
-
         if (DEBUG_QUICKMOVE_UPGRADE && isUpgradeLikeSemantic(semantic)) {
             logQuickMoveUpgrade("accept fromPlayerSide={}, moving={}, candidate={}",
                     fromPlayerSide, describeStack(stackToMove), describeSlot(candidateSlot));

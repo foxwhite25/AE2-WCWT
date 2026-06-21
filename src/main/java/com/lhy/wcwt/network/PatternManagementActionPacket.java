@@ -70,11 +70,7 @@ public record PatternManagementActionPacket(Action action,
                     case UPLOAD_CACHE_SLOT -> uploadCachePatterns(player, menu, packet.providerId);
                     case OPEN_PROVIDER_UI -> openProviderUi(player, packet.providerId);
                     case EXCHANGE_PROVIDER_SLOT -> exchangeProviderSlot(player, packet.providerId, packet.cacheSlot);
-                    case QUICK_EXTRACT_PROVIDER_SLOT -> {
-                        if (packet.shiftQuickEnabled()) {
-                            quickExtractProviderSlot(player, packet.providerId, packet.cacheSlot);
-                        }
-                    }
+                    case QUICK_EXTRACT_PROVIDER_SLOT -> quickExtractProviderSlot(player, packet.providerId, packet.cacheSlot);
                     case QUICK_INSERT_FIRST_PROVIDER -> {
                         if (packet.shiftQuickEnabled()) {
                             quickInsertEncodedPattern(player, packet.providerId, packet.cacheSlot);

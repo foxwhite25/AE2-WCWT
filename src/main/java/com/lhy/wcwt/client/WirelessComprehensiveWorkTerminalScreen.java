@@ -120,9 +120,22 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     private static final boolean DEBUG_PERF = Boolean.getBoolean("wcwt.debug.perf");
     private static final boolean DEBUG_SLOT_HIT = Boolean.getBoolean("wcwt.debug.slotHit");
     private static final boolean DEBUG_PATTERN_UPLOAD = Boolean.getBoolean("wcwt.debug.patternUpload");
+    /**
+     * 诊断「工具包界面关闭时存取延迟极高」用：每秒聚合一次每帧驱动服务端同步的几个动作的触发次数，
+     * 同时打印工具包面板状态，方便对比开/关时哪个动作在每帧翻转。开关：-Dwcwt.debug.frameSync=true
+     */
+    private static final boolean DEBUG_FRAME_SYNC = Boolean.getBoolean("wcwt.debug.frameSync");
     private static final long PERF_LOG_THRESHOLD_NS = 1_000_000L;
     private static final long PATTERN_PROVIDER_REFRESH_DEBOUNCE_MS = 180L;
     private static final long PATTERN_PROVIDER_SUBSCRIPTION_KEEPALIVE_MS = 3_000L;
+
+    // === DEBUG_FRAME_SYNC 计数器（仅诊断用，每秒 flush 一次） ===
+    private long frameSyncWindowStartMs;
+    private int frameSyncFrames;
+    private int frameSyncProviderListRequests;
+    private int frameSyncProviderSlotPacketSends;
+    private int frameSyncProviderSlotRebuilds;
+    private int frameSyncRepoUpdateViews;
     
     // 扩展UI按钮
     private ExtendedUIButton advancedCodingButton;
@@ -205,6 +218,27 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     private Scrollbar patternManagementScrollbar;
     private AETextField patternManageSearchField;
     private AETextField patternManageMappingField;
+    private int extendedUiAvailabilityMask = -1;
+    private int lastExtendedUiButtonMask = -1;
+    private IExtendedUIHost.ExtendedUIType lastExtendedUiVisibilityType = null;
+    private boolean lastExtendedUiToolkitInManagementArea;
+    private boolean extendedUiVisibilityDirty = true;
+    private boolean panelSlotActivityDirty = true;
+    private boolean lastAdvancedPanelOpen;
+    private boolean lastResonatingPanelOpen;
+    private boolean lastCosmeticPanelOpen;
+    private boolean lastCuriosPanelOpen;
+    private boolean lastToolkitPanelOpen;
+    private boolean lastToolkitInManagementArea;
+    private boolean lastToolboxPanelOpen;
+    private boolean lastCellUpgradesPanelVisible;
+    private int lastCuriosSlotScroll = Integer.MIN_VALUE;
+    private int lastToolkitSlotScroll = Integer.MIN_VALUE;
+    private int lastManagementToolkitSlotScroll = Integer.MIN_VALUE;
+    private boolean patternProviderSlotLayoutDirty = true;
+    private boolean lastPatternProviderSlotsInToolkitArea;
+    private int lastPatternProviderSlotScroll = Integer.MIN_VALUE;
+    private int lastPatternProviderRowCount = -1;
     private final List<PatternProviderListPacket.Entry> patternProviders = new ArrayList<>();
     private final List<PatternManagementRow> patternManagementRows = new ArrayList<>();
     private final Set<PatternManagementSlotKey> patternManagementSearchHighlightSlots = new HashSet<>();
@@ -219,7 +253,6 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     private String resolvedPatternManagementSearchText = "";
     private List<PatternProviderSlotSyncPacket.Mapping> lastPatternProviderSlotSync = List.of();
     private boolean forcePatternProviderSlotSnapshot;
-    private int patternProviderRenderSlotCursor;
     private final ExtendedPanelLayout mainLayout = ExtendedPanelLayout.load(
             ResourceLocation.fromNamespaceAndPath("ae2", "screens/wcwt/wireless_comprehensive_work_terminal.json"));
     private final ExtendedPanelLayout managementToolkitLayout = ExtendedPanelLayout.load("wcwt_management_toolkit.json");
@@ -913,6 +946,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         // 扩展按钮位置依赖升级槽实际高度，必须在 setMaxRows 之后调用。
         initExtendedUIButtons();
         initializePanels();
+        markExtendedUiLayoutDirty();
         installViewCellsVisibilityWidget();
         updateViewCellsPanelVisibility();
         installViewCellsOverlayRenderable();
@@ -1045,7 +1079,10 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
 
     private void toggleFavoritedItemsFirst() {
         WcwtFavorites.setEnabled(!WcwtFavorites.isEnabled());
-        rebuildFavoriteRepoView();
+        if (DEBUG_FRAME_SYNC) {
+            frameSyncRepoUpdateViews++;
+        }
+        repo.updateView();
         invokeMeStorageUpdateScrollbar();
     }
 
@@ -1061,7 +1098,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             return false;
         }
         WcwtFavorites.toggle(entry.getWhat());
-        rebuildFavoriteRepoView();
+        repo.updateView();
         invokeMeStorageUpdateScrollbar();
         return true;
     }
@@ -1147,6 +1184,13 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                 || resonatingLightningPatternCodingButton == null) {
             return;
         }
+        if (extendedUiAvailabilityMask < 0) {
+            refreshExtendedUiAvailabilityMask();
+        }
+        int availableMask = extendedUiAvailabilityMask;
+        if (!extendedUiVisibilityDirty && availableMask == lastExtendedUiButtonMask) {
+            return;
+        }
 
         // 扩展 UI 按钮位置优先读取 JSON 的 extended_functions_0..3。
         // 按钮不可用时会折叠，后面的按钮自动补位到前一个 JSON 槽位。
@@ -1177,6 +1221,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         placeExtendedButton(resonatingLightningPatternCodingButton,
                 IExtendedUIHost.ExtendedUIType.RESONATING_LIGHTNING_PATTERN_CODING,
                 visibleIndex, fallbackX, fallbackY, extBtnSpacing);
+        lastExtendedUiButtonMask = availableMask;
     }
 
     private int placeExtendedButton(ExtendedUIButton button, IExtendedUIHost.ExtendedUIType type, int visibleIndex,
@@ -1208,7 +1253,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     }
 
     private boolean isExtendedUIAvailable(IExtendedUIHost.ExtendedUIType type) {
-        if (!isExtendedUiCardInstalled(type)) {
+        if ((extendedUiAvailabilityMask & extendedUiMask(type)) == 0) {
             return false;
         }
         return switch (type) {
@@ -1220,6 +1265,46 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             case RESONATING_LIGHTNING_PATTERN_CODING ->
                     ModList.get().isLoaded("ae2cs") || ModList.get().isLoaded("ae2lt");
             case NONE -> false;
+        };
+    }
+
+    private int refreshExtendedUiAvailabilityMask() {
+        var host = menu.getMenuHost();
+        if (host == null) {
+            return updateExtendedUiAvailabilityMask(0);
+        }
+        int mask = 0;
+        for (var type : IExtendedUIHost.ExtendedUIType.values()) {
+            if (type != IExtendedUIHost.ExtendedUIType.NONE && isExtendedUiCardInstalledUncached(type)) {
+                mask |= extendedUiMask(type);
+            }
+        }
+        return updateExtendedUiAvailabilityMask(mask);
+    }
+
+    private int updateExtendedUiAvailabilityMask(int mask) {
+        if (extendedUiAvailabilityMask != mask) {
+            extendedUiAvailabilityMask = mask;
+            markExtendedUiLayoutDirty();
+            patternProviderSlotLayoutDirty = true;
+        }
+        return extendedUiAvailabilityMask;
+    }
+
+    private void markExtendedUiLayoutDirty() {
+        extendedUiVisibilityDirty = true;
+        panelSlotActivityDirty = true;
+    }
+
+    private static int extendedUiMask(IExtendedUIHost.ExtendedUIType type) {
+        return switch (type) {
+            case ADVANCED_CODING -> 1;
+            case COSMETIC_ARMOR -> 1 << 1;
+            case CURIOS -> 1 << 2;
+            case TOOL_SLOTS_BOX -> 1 << 3;
+            case TOOLKIT -> 1 << 4;
+            case RESONATING_LIGHTNING_PATTERN_CODING -> 1 << 5;
+            case NONE -> 0;
         };
     }
     
@@ -1480,6 +1565,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         
         // 发送网络数据包同步状态
         PacketDistributor.sendToServer(new ExtendedUIPacket(newType));
+        markExtendedUiLayoutDirty();
         updateExtendedUIVisibility();
     }
     
@@ -1487,6 +1573,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         var host = menu.getMenuHost();
         if (host == null) return;
 
+        int availableMask = refreshExtendedUiAvailabilityMask();
         layoutExtendedUIButtons();
         host.setCurrentExtendedUI(menu.getSyncedExtendedUIType());
         
@@ -1497,12 +1584,8 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             PacketDistributor.sendToServer(new ExtendedUIPacket(currentUI));
         }
         boolean toolkitInManagementArea = isToolkitExpandedInManagementArea();
-        boolean hideExtendedButtons = currentUI == IExtendedUIHost.ExtendedUIType.ADVANCED_CODING
-                || currentUI == IExtendedUIHost.ExtendedUIType.CURIOS
-                || (currentUI == IExtendedUIHost.ExtendedUIType.TOOLKIT && !toolkitInManagementArea)
-                || currentUI == IExtendedUIHost.ExtendedUIType.RESONATING_LIGHTNING_PATTERN_CODING;
 
-        // 更新高级编码模式状态
+        // 这些是轻量运行态，保持每帧与当前 UI/选择同步；槽位重排再走下面的脏检查。
         advancedCodingMode = (currentUI == IExtendedUIHost.ExtendedUIType.ADVANCED_CODING);
         patternSelectionLockedMode = advancedCodingMode
                 || currentUI == IExtendedUIHost.ExtendedUIType.RESONATING_LIGHTNING_PATTERN_CODING;
@@ -1512,6 +1595,18 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         if (patternSelectionLockedMode && host.getSelectedPatternIndex() >= 0) {
             selectedPatternCacheIndex = host.getSelectedPatternIndex();
         }
+
+        boolean visibilityStateChanged = extendedUiVisibilityDirty
+                || lastExtendedUiVisibilityType != currentUI
+                || lastExtendedUiToolkitInManagementArea != toolkitInManagementArea
+                || lastExtendedUiButtonMask != availableMask;
+        if (!visibilityStateChanged) {
+            return;
+        }
+        boolean hideExtendedButtons = currentUI == IExtendedUIHost.ExtendedUIType.ADVANCED_CODING
+                || currentUI == IExtendedUIHost.ExtendedUIType.CURIOS
+                || (currentUI == IExtendedUIHost.ExtendedUIType.TOOLKIT && !toolkitInManagementArea)
+                || currentUI == IExtendedUIHost.ExtendedUIType.RESONATING_LIGHTNING_PATTERN_CODING;
 
         // 高级编码 / 饰品 / 工具包界面打开时，隐藏右侧这组扩展按钮；关闭后再显示。（卡槽箱不隐藏按钮）
         // 仅对已启用的扩展刷新显隐；不可用项须保持隐藏（不可被 !hideExtendedButtons 误判为显示）
@@ -1588,6 +1683,11 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                 // 所有面板都已隐藏
                 break;
         }
+        lastExtendedUiVisibilityType = currentUI;
+        lastExtendedUiToolkitInManagementArea = toolkitInManagementArea;
+        extendedUiVisibilityDirty = false;
+        panelSlotActivityDirty = true;
+        patternProviderSlotLayoutDirty = true;
     }
 
     public boolean handleExtendedUiHotkey(int keyCode, int scanCode) {
@@ -1631,6 +1731,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     }
 
     private boolean triggerExtendedUiHotkey(IExtendedUIHost.ExtendedUIType type) {
+        refreshExtendedUiAvailabilityMask();
         if (!isExtendedUIAvailable(type)) {
             return false;
         }
@@ -2069,19 +2170,22 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     @Override
     protected void updateBeforeRender() {
         super.updateBeforeRender();
+        if (DEBUG_FRAME_SYNC) {
+            recordFrameSyncTick();
+        }
         if (universalTerminalButton != null) {
             universalTerminalButton.refresh(menu);
         }
         WcwtFavorites.ensureLoaded();
-        if (WcwtFavorites.isEnabled()) {
-            rebuildFavoriteRepoView();
-        }
         refreshRepoViewAfterTransientReconnect();
         restoreManagementToolkitOpenStateIfNeeded();
         boolean syncedPatternManagementUploadEnabled = menu.isPatternManagementUploadEnabled();
         var syncedPatternManagementDisplayMode = patternManagementDisplayModeFromOrdinal(menu.getPatternManagementDisplayMode());
         boolean syncedPatternManagementShowSlots = menu.isPatternManagementShowSlots();
         var syncedPatternManagementSearchMode = patternManagementSearchModeFromOrdinal(menu.getPatternManagementSearchMode());
+        var previousPatternManagementDisplayMode = patternManagementDisplayMode;
+        boolean previousPatternManagementShowSlots = patternManagementShowSlots;
+        var previousPatternManagementSearchMode = patternManagementSearchMode;
         if (pendingPatternManagementDisplayMode != null) {
             if (pendingPatternManagementDisplayMode == syncedPatternManagementDisplayMode) {
                 pendingPatternManagementDisplayMode = null;
@@ -2122,6 +2226,12 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         } else {
             patternManagementUploadEnabled = syncedPatternManagementUploadEnabled;
         }
+        if (previousPatternManagementDisplayMode != patternManagementDisplayMode
+                || previousPatternManagementShowSlots != patternManagementShowSlots
+                || previousPatternManagementSearchMode != patternManagementSearchMode) {
+            rebuildPatternManagementRows();
+            patternProviderSlotLayoutDirty = true;
+        }
         if (magnetCardMenuButton != null) {
             var host = menu.getMenuHost();
             boolean hasMagnet = host != null && WcwtWirelessFeatures.hasMagnetCardInstalled(host.getItemStack());
@@ -2140,7 +2250,6 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         updatePatternCacheSlots();
         updatePatternManagement();
         updatePatternProviderSlots();
-        updateCurioSlots();
         if (DEBUG_REPO) {
             logRepoViewState("updateBeforeRender", -1);
         }
@@ -2284,6 +2393,38 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         }
     }
 
+    private void recordFrameSyncTick() {
+        long now = System.currentTimeMillis();
+        frameSyncFrames++;
+        if (frameSyncWindowStartMs == 0L) {
+            frameSyncWindowStartMs = now;
+            return;
+        }
+        if (now - frameSyncWindowStartMs < 1_000L) {
+            return;
+        }
+        boolean toolkitPanelOpen = toolkitPanel != null && toolkitPanel.isVisible();
+        boolean toolkitInManagementArea = isToolkitExpandedInManagementArea();
+        WcwtMod.LOGGER.info(
+                "WCWT frameSync(1s): frames={}, providerListRequests={}, providerSlotPacketSends={}, providerSlotRebuilds={}, repoUpdateViews={}, toolkitPanelOpen={}, toolkitInManagementArea={}, patternManagementActive={}, providers={}, mgmtRows={}",
+                frameSyncFrames,
+                frameSyncProviderListRequests,
+                frameSyncProviderSlotPacketSends,
+                frameSyncProviderSlotRebuilds,
+                frameSyncRepoUpdateViews,
+                toolkitPanelOpen,
+                toolkitInManagementArea,
+                isPatternManagementActive(),
+                patternProviders.size(),
+                patternManagementRows.size());
+        frameSyncWindowStartMs = now;
+        frameSyncFrames = 0;
+        frameSyncProviderListRequests = 0;
+        frameSyncProviderSlotPacketSends = 0;
+        frameSyncProviderSlotRebuilds = 0;
+        frameSyncRepoUpdateViews = 0;
+    }
+
     private void refreshPatternProviders() {
         long now = System.currentTimeMillis();
         if (now - lastPatternProviderRefreshRequestMs < PATTERN_PROVIDER_REFRESH_DEBOUNCE_MS) {
@@ -2312,10 +2453,14 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     private void onPatternManagementSearchChanged() {
         resolvedPatternManagementSearchText = "";
         rebuildPatternManagementRows();
+        patternProviderSlotLayoutDirty = true;
         refreshPatternProviders();
     }
 
     private void requestPatternProviderList(boolean subscribe) {
+        if (DEBUG_FRAME_SYNC) {
+            frameSyncProviderListRequests++;
+        }
         PacketDistributor.sendToServer(new PatternProviderListPacket.Request(subscribe, currentPatternManagementSearchText()));
     }
 
@@ -2345,6 +2490,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         focusedPatternProviderSlot = focusedPatternProviderId >= 0 ? focusedPatternProviderSlot : -1;
         rebuildPatternManagementRows();
         forcePatternProviderSlotSnapshot = true;
+        patternProviderSlotLayoutDirty = true;
         if (DEBUG_PERF) {
             long totalNs = System.nanoTime() - startNs;
             if (totalNs >= PERF_LOG_THRESHOLD_NS) {
@@ -2542,6 +2688,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         String currentSearch = patternManageSearchField.getValue();
         if (!uploadSearchText.equals(currentSearch)) {
             patternManageSearchField.setValue(uploadSearchText);
+            patternProviderSlotLayoutDirty = true;
         }
         syncSelectedPatternProviderFromSearch(uploadSearchText);
     }
@@ -2892,7 +3039,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         };
     }
 
-    private boolean isExtendedUiCardInstalled(IExtendedUIHost.ExtendedUIType type) {
+    private boolean isExtendedUiCardInstalledUncached(IExtendedUIHost.ExtendedUIType type) {
         var host = menu.getMenuHost();
         if (host == null) {
             return false;
@@ -3006,15 +3153,31 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         }
 
         List<PatternProviderSlotSyncPacket.Mapping> mappings = new ArrayList<>(slots.size());
-        if (isToolkitExpandedInManagementArea()) {
+        boolean toolkitInManagementArea = isToolkitExpandedInManagementArea();
+        int scroll = patternManagementScrollbar != null ? patternManagementScrollbar.getCurrentScroll() : 0;
+        boolean stateChanged = patternProviderSlotLayoutDirty
+                || lastPatternProviderSlotsInToolkitArea != toolkitInManagementArea
+                || lastPatternProviderSlotScroll != scroll
+                || lastPatternProviderRowCount != patternManagementRows.size()
+                || forcePatternProviderSlotSnapshot;
+        if (!stateChanged) {
+            return;
+        }
+        if (DEBUG_FRAME_SYNC) {
+            frameSyncProviderSlotRebuilds++;
+        }
+        if (toolkitInManagementArea) {
             updatePatternProviderSlotsHidden(slots);
             syncPatternProviderSlotMappings(mappings);
             forcePatternProviderSlotSnapshot = false;
+            patternProviderSlotLayoutDirty = false;
+            lastPatternProviderSlotsInToolkitArea = true;
+            lastPatternProviderSlotScroll = scroll;
+            lastPatternProviderRowCount = patternManagementRows.size();
             return;
         }
 
         int visibleRows = Math.max(1, patternManagementPage.height() / PATTERN_MANAGEMENT_ROW_H);
-        int scroll = patternManagementScrollbar != null ? patternManagementScrollbar.getCurrentScroll() : 0;
         int visibleSlotIndex = 0;
         int rowStart = patternManagementPage.top();
 
@@ -3040,6 +3203,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                 var stack = entry.slots().getOrDefault(providerSlot, ItemStack.EMPTY);
                 var slot = slots.get(visibleSlotIndex++);
                 if (slot instanceof WirelessComprehensiveWorkTerminalMenu.PatternProviderSlot providerSlotSlot) {
+                    providerSlotSlot.setMapping(entry.providerId(), providerSlot);
                     if (forcePatternProviderSlotSnapshot) {
                         providerSlotSlot.forceClientDisplayStack(stack);
                     } else {
@@ -3052,14 +3216,25 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         }
 
         for (int i = visibleSlotIndex; i < slots.size(); i++) {
-            hideSlot(slots.get(i));
+            Slot slot = slots.get(i);
+            if (slot instanceof WirelessComprehensiveWorkTerminalMenu.PatternProviderSlot providerSlot) {
+                providerSlot.clearMapping();
+            }
+            hideSlot(slot);
         }
         syncPatternProviderSlotMappings(mappings);
         forcePatternProviderSlotSnapshot = false;
+        patternProviderSlotLayoutDirty = false;
+        lastPatternProviderSlotsInToolkitArea = false;
+        lastPatternProviderSlotScroll = scroll;
+        lastPatternProviderRowCount = patternManagementRows.size();
     }
 
     private void updatePatternProviderSlotsHidden(List<Slot> slots) {
         for (Slot slot : slots) {
+            if (slot instanceof WirelessComprehensiveWorkTerminalMenu.PatternProviderSlot providerSlot) {
+                providerSlot.clearMapping();
+            }
             hideSlot(slot);
         }
     }
@@ -3067,6 +3242,9 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
     private void syncPatternProviderSlotMappings(List<PatternProviderSlotSyncPacket.Mapping> mappings) {
         if (mappings.equals(lastPatternProviderSlotSync)) {
             return;
+        }
+        if (DEBUG_FRAME_SYNC) {
+            frameSyncProviderSlotPacketSends++;
         }
         lastPatternProviderSlotSync = List.copyOf(mappings);
         PacketDistributor.sendToServer(new PatternProviderSlotSyncPacket(mappings));
@@ -3114,51 +3292,93 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
      */
     private void updatePanelSlotActivity() {
         boolean panelOpen = advancedCodingPanel != null && advancedCodingPanel.isVisible();
-        for (var semantic : PANEL_SLOT_SEMANTICS) {
-            setSemanticSlotsHidden(semantic, !panelOpen);
-        }
         boolean rlpcOpen = resonatingLightningPatternCodingPanel != null
                 && resonatingLightningPatternCodingPanel.isVisible();
-        for (var semantic : RLPC_PANEL_SLOT_SEMANTICS) {
-            setSemanticSlotsHidden(semantic, !rlpcOpen);
+        boolean cosmeticOpen = cosmeticArmorPanel != null && cosmeticArmorPanel.isVisible();
+        boolean curiosOpen = curiosPanel != null && curiosPanel.isVisible();
+        boolean toolkitOpen = toolkitPanel != null && toolkitPanel.isVisible();
+        boolean toolkitInManagementArea = isToolkitExpandedInManagementArea();
+        boolean toolboxOpen = toolboxPanel != null && toolboxPanel.isVisible();
+        int curiosScroll = curiosScrollbar != null ? curiosScrollbar.getCurrentScroll() : 0;
+        int toolkitScroll = toolkitScrollbar != null ? toolkitScrollbar.getCurrentScroll() : 0;
+        int managementToolkitScroll = patternManagementScrollbar != null ? patternManagementScrollbar.getCurrentScroll() : 0;
+        boolean showCellUpgrades = panelOpen && hasVisibleCellUpgradeSlot();
+
+        boolean stateChanged = panelSlotActivityDirty
+                || lastAdvancedPanelOpen != panelOpen
+                || lastResonatingPanelOpen != rlpcOpen
+                || lastCosmeticPanelOpen != cosmeticOpen
+                || lastCuriosPanelOpen != curiosOpen
+                || lastToolkitPanelOpen != toolkitOpen
+                || lastToolkitInManagementArea != toolkitInManagementArea
+                || lastToolboxPanelOpen != toolboxOpen
+                || lastCellUpgradesPanelVisible != showCellUpgrades
+                || (curiosOpen && lastCuriosSlotScroll != curiosScroll)
+                || ((toolkitOpen || toolkitInManagementArea)
+                        && lastToolkitSlotScroll != toolkitScroll)
+                || (toolkitInManagementArea && lastManagementToolkitSlotScroll != managementToolkitScroll);
+        if (!stateChanged) {
+            return;
         }
 
-        boolean cosmeticOpen = cosmeticArmorPanel != null && cosmeticArmorPanel.isVisible();
-        for (var semantic : COSMETIC_ARMOR_SLOT_SEMANTICS) {
-            setSemanticSlotsHidden(semantic, !cosmeticOpen);
+        if (lastAdvancedPanelOpen != panelOpen || panelSlotActivityDirty) {
+            for (var semantic : PANEL_SLOT_SEMANTICS) {
+                setSemanticSlotsHidden(semantic, !panelOpen);
+            }
+        }
+        if (lastResonatingPanelOpen != rlpcOpen || panelSlotActivityDirty) {
+            for (var semantic : RLPC_PANEL_SLOT_SEMANTICS) {
+                setSemanticSlotsHidden(semantic, !rlpcOpen);
+            }
+        }
+
+        if (lastCosmeticPanelOpen != cosmeticOpen || panelSlotActivityDirty) {
+            for (var semantic : COSMETIC_ARMOR_SLOT_SEMANTICS) {
+                setSemanticSlotsHidden(semantic, !cosmeticOpen);
+            }
         }
         if (cosmeticOpen) {
             positionCosmeticArmorSlots();
         }
 
-        boolean curiosOpen = curiosPanel != null && curiosPanel.isVisible();
-        setSemanticSlotsHidden(WcwtSlotSemantics.AE_CURIOS, !curiosOpen);
-        if (curiosScrollbar != null) {
-            curiosScrollbar.setVisible(curiosOpen);
+        if (lastCuriosPanelOpen != curiosOpen || panelSlotActivityDirty || (curiosOpen && lastCuriosSlotScroll != curiosScroll)) {
+            setSemanticSlotsHidden(WcwtSlotSemantics.AE_CURIOS, !curiosOpen);
+            if (curiosScrollbar != null) {
+                curiosScrollbar.setVisible(curiosOpen);
+            }
+            updateCurioSlots();
         }
 
-        boolean toolkitOpen = toolkitPanel != null && toolkitPanel.isVisible();
-        boolean toolkitInManagementArea = isToolkitExpandedInManagementArea();
-        setSemanticSlotsHidden(WcwtSlotSemantics.WCWT_TOOLKIT, !(toolkitOpen || toolkitInManagementArea));
-        if (toolkitScrollbar != null) {
-            toolkitScrollbar.setVisible(toolkitOpen);
+        if (lastToolkitPanelOpen != toolkitOpen
+                || lastToolkitInManagementArea != toolkitInManagementArea
+                || panelSlotActivityDirty
+                || ((toolkitOpen || toolkitInManagementArea)
+                        && (lastToolkitSlotScroll != toolkitScroll
+                        || lastManagementToolkitSlotScroll != managementToolkitScroll))) {
+            setSemanticSlotsHidden(WcwtSlotSemantics.WCWT_TOOLKIT, !(toolkitOpen || toolkitInManagementArea));
+            if (toolkitScrollbar != null) {
+                toolkitScrollbar.setVisible(toolkitOpen);
+            }
+            updateToolkitSlots();
+            patternProviderSlotLayoutDirty = true;
         }
 
-        boolean toolboxOpen = toolboxPanel != null && toolboxPanel.isVisible();
-        if (toolboxOpen) {
-            positionToolboxSlots();
-        } else {
-            hideToolboxSlots();
+        if (lastToolboxPanelOpen != toolboxOpen || panelSlotActivityDirty) {
+            if (toolboxOpen) {
+                positionToolboxSlots();
+            } else {
+                hideToolboxSlots();
+            }
         }
 
-        updateToolkitSlots();
-        updateResonatingStorageSlots();
+        if (lastResonatingPanelOpen != rlpcOpen || panelSlotActivityDirty) {
+            updateResonatingStorageSlots();
+        }
 
         // 元件升级卡槽：面板关闭→隐藏；面板打开→根据当前面板位置实时定位。
         // 元件没放入时 OptionalRestrictedInputSlot.isSlotEnabled() 自动返回 false，
         // vanilla 不渲染、不接点击，所以不需要再额外 hide。
         if (cellUpgradesPanel != null) {
-            boolean showCellUpgrades = panelOpen && hasVisibleCellUpgradeSlot();
             cellUpgradesPanel.setVisible(showCellUpgrades);
             if (showCellUpgrades && upgradesPanel != null && advancedCodingPanel != null) {
                 int panelHeight = cellUpgradesPanel.getBounds().getHeight();
@@ -3170,6 +3390,18 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         } else if (!panelOpen) {
             setSemanticSlotsHidden(com.lhy.wcwt.menu.WcwtSlotSemantics.WCWT_CELL_UPGRADE, true);
         }
+        lastAdvancedPanelOpen = panelOpen;
+        lastResonatingPanelOpen = rlpcOpen;
+        lastCosmeticPanelOpen = cosmeticOpen;
+        lastCuriosPanelOpen = curiosOpen;
+        lastToolkitPanelOpen = toolkitOpen;
+        lastToolkitInManagementArea = toolkitInManagementArea;
+        lastToolboxPanelOpen = toolboxOpen;
+        lastCellUpgradesPanelVisible = showCellUpgrades;
+        lastCuriosSlotScroll = curiosScroll;
+        lastToolkitSlotScroll = toolkitScroll;
+        lastManagementToolkitSlotScroll = managementToolkitScroll;
+        panelSlotActivityDirty = false;
     }
 
     private void updateResonatingStorageSlots() {
@@ -3276,6 +3508,15 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
 
         int columns = toolkitInManagementArea ? getManagementToolkitColumns() : toolkitPanel.getColumns();
         int visibleRows = toolkitInManagementArea ? getManagementToolkitVisibleRows() : ToolkitPanel.VISIBLE_ROWS;
+        // 嵌入样板管理区时，本方法在 updateBeforeRender 里先于 updatePatternManagement()
+        // → refreshPatternManagementLayout() 执行，此时这两个 rect 可能仍是上一次/默认值，
+        // 会导致首帧工具图标与滚动条定位到错误位置。这里先就地解析一次，保证基准坐标是当前布局的最新值。
+        if (toolkitInManagementArea) {
+            managementToolkitSlotRect = managementToolkitLayout.slot("management_toolkit_slots",
+                    managementToolkitSlotRect, imageWidth, imageHeight);
+            managementToolkitScrollbarRect = managementToolkitLayout.widget("management_toolkit_scrollbar",
+                    managementToolkitScrollbarRect, imageWidth, imageHeight);
+        }
         int visibleSlots = columns * visibleRows;
         int totalRows = (slots.size() + columns - 1) / columns;
         int maxScroll = Math.max(0, totalRows - visibleRows);
@@ -3370,24 +3611,25 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
      */
     @Override
     public void renderSlot(GuiGraphics guiGraphics, net.minecraft.world.inventory.Slot slot) {
-        if (advancedCodingPanel != null && advancedCodingPanel.isVisible() && isPanelSlot(slot)) {
+        var semantic = menu.getSlotSemantic(slot);
+        if (advancedCodingPanel != null && advancedCodingPanel.isVisible() && isPanelSlotSemantic(semantic)) {
             return;
         }
         if (resonatingLightningPatternCodingPanel != null
                 && resonatingLightningPatternCodingPanel.isVisible()
-                && menu.getSlots(WcwtSlotSemantics.WCWT_RESONATING_STORAGE).contains(slot)) {
+                && semantic == WcwtSlotSemantics.WCWT_RESONATING_STORAGE) {
             renderResonatingStorageSlot(guiGraphics, slot);
             return;
         }
-        if (menu.getSlots(SlotSemantics.TOOLBOX).contains(slot)
+        if (semantic == SlotSemantics.TOOLBOX
                 && (toolboxPanel == null || !toolboxPanel.isVisible())) {
             return;
         }
-        if (menu.getSlots(WcwtSlotSemantics.WCWT_TOOLKIT).contains(slot)
+        if (semantic == WcwtSlotSemantics.WCWT_TOOLKIT
                 && ((toolkitPanel == null || !toolkitPanel.isVisible()) && !isToolkitExpandedInManagementArea())) {
             return;
         }
-        if (menu.getSlots(WcwtSlotSemantics.WCWT_PATTERN_PROVIDER).contains(slot)) {
+        if (semantic == WcwtSlotSemantics.WCWT_PATTERN_PROVIDER) {
             return;
         }
         int cacheIndex = getPatternCacheSlotIndex(slot);
@@ -3493,7 +3735,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
 
     @Override
     protected void renderSlotHighlight(GuiGraphics guiGraphics, Slot slot, int mouseX, int mouseY, float partialTick) {
-        if (menu.getSlots(WcwtSlotSemantics.WCWT_PATTERN_PROVIDER).contains(slot)) {
+        if (menu.getSlotSemantic(slot) == WcwtSlotSemantics.WCWT_PATTERN_PROVIDER) {
             return;
         }
         super.renderSlotHighlight(guiGraphics, slot, mouseX, mouseY, partialTick);
@@ -3536,9 +3778,9 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         poseStack.popPose();
     }
 
-    private boolean isPanelSlot(net.minecraft.world.inventory.Slot slot) {
+    private static boolean isPanelSlotSemantic(appeng.menu.SlotSemantic slotSemantic) {
         for (var semantic : PANEL_SLOT_SEMANTICS) {
-            if (menu.getSlots(semantic).contains(slot)) {
+            if (semantic == slotSemantic) {
                 return true;
             }
         }
@@ -3800,7 +4042,6 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             return;
         }
 
-        patternProviderRenderSlotCursor = 0;
         for (int i = 0; i < visibleRows; i++) {
             int rowIndex = scroll + i;
             if (rowIndex >= patternManagementRows.size()) {
@@ -3891,7 +4132,6 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             int panelRight = patternManagementPage.left() + patternManagementPage.width();
             int drawW = Math.min(PATTERN_MANAGEMENT_SLOT_BG_SIZE, panelRight - x);
             if (drawW <= 0) {
-                patternProviderRenderSlotCursor++;
                 continue;
             }
             guiGraphics.blit(WCWT_MANAGEMENT_TEXTURE, x, y, 0, 0,
@@ -3906,7 +4146,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             if (shouldHighlightFocusedPatternSlot(row.entry().providerId(), slot)) {
                 renderFocusedPatternManagementSlotHighlight(guiGraphics, x, y);
             }
-            ItemStack stack = getPatternProviderRenderStack(patternProviderRenderSlotCursor++);
+            ItemStack stack = row.entry().slots().getOrDefault(slot, ItemStack.EMPTY);
             if (!stack.isEmpty()) {
                 ItemStack displayStack = getPatternDisplayStack(stack);
                 int ix = patternManagementSlotHitMinX(x);
@@ -3921,14 +4161,6 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                     EAE_ICONS_TEXTURE, 48, 32, 64, 64, mouseX, mouseY,
                     PATTERN_MANAGEMENT_HIGHLIGHT_ICON_X_OFFSET, 0);
         }
-    }
-
-    private ItemStack getPatternProviderRenderStack(int visibleIndex) {
-        var slots = menu.getSlots(WcwtSlotSemantics.WCWT_PATTERN_PROVIDER);
-        if (visibleIndex < 0 || visibleIndex >= slots.size()) {
-            return ItemStack.EMPTY;
-        }
-        return slots.get(visibleIndex).getItem();
     }
 
     private ItemStack getPatternDisplayStack(ItemStack patternStack) {
@@ -4134,7 +4366,12 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         } else if (targetRow >= current + visibleRows) {
             desired = targetRow - visibleRows + 1;
         }
-        patternManagementScrollbar.setCurrentScroll(Math.max(0, desired));
+        int clampedDesired = Math.max(0, desired);
+        if (clampedDesired != current) {
+            patternManagementScrollbar.setCurrentScroll(clampedDesired);
+            patternProviderSlotLayoutDirty = true;
+            panelSlotActivityDirty = true;
+        }
     }
 
     private void renderPatternManagementToggleButton(GuiGraphics guiGraphics, ExtendedPanelLayout.Rect rect,
@@ -4346,7 +4583,33 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                 return; // 高级编码 UI 打开时锁定缓存槽，禁止拿走/放入样板。
             }
         }
+        if (slot instanceof WirelessComprehensiveWorkTerminalMenu.PatternProviderSlot patternProviderSlot) {
+            handlePatternProviderSlotAction(patternProviderSlot, mouseButton, clickType);
+            return;
+        }
         super.slotClicked(slot, slotIdx, mouseButton, clickType);
+    }
+
+    private void handlePatternProviderSlotAction(WirelessComprehensiveWorkTerminalMenu.PatternProviderSlot slot,
+                                                 int mouseButton,
+                                                 ClickType clickType) {
+        if (slot.providerId() <= 0 || slot.providerSlot() < 0) {
+            return;
+        }
+        switch (clickType) {
+            case PICKUP -> sendPatternManagementAction(
+                    PatternManagementActionPacket.Action.EXCHANGE_PROVIDER_SLOT,
+                    slot.providerId(),
+                    slot.providerSlot());
+            case QUICK_MOVE -> sendPatternManagementAction(
+                    PatternManagementActionPacket.Action.QUICK_EXTRACT_PROVIDER_SLOT,
+                    slot.providerId(),
+                    slot.providerSlot());
+            default -> {
+                return;
+            }
+        }
+        playPatternManagementItemTransferSound(menu.getCarried().isEmpty());
     }
     
     private void renderExtendedUI(GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -4746,12 +5009,14 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                 patternManageMappingField.setValue("");
             }
             rebuildPatternManagementRows();
+            patternProviderSlotLayoutDirty = true;
             return true;
         }
         if (inRect(relX, relY, patternManagementDisplayModeButton)) {
             playPatternManagementClickSound();
             patternManagementDisplayMode = patternManagementDisplayMode.next();
             rebuildPatternManagementRows();
+            patternProviderSlotLayoutDirty = true;
             sendPatternManagementSettings();
             return true;
         }
@@ -4759,6 +5024,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             playPatternManagementClickSound();
             patternManagementShowSlots = !patternManagementShowSlots;
             rebuildPatternManagementRows();
+            patternProviderSlotLayoutDirty = true;
             sendPatternManagementSettings();
             return true;
         }
@@ -4772,6 +5038,7 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
             playPatternManagementClickSound();
             patternManagementSearchMode = patternManagementSearchMode.next();
             rebuildPatternManagementRows();
+            patternProviderSlotLayoutDirty = true;
             refreshPatternProviders();
             sendPatternManagementSettings();
             return true;
@@ -4934,7 +5201,6 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
         selectedPatternProviderId = slotHit.entry().providerId();
         selectedPatternProviderSlot = slotHit.slot();
         updatePatternProviderSlots();
-        refreshPatternProviders();
     }
 
     private boolean tryAeNetworkToolkitSlotDoubleDeposit(double mouseX, double mouseY) {
@@ -5011,7 +5277,6 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                     "WCWT repo debug: quick insert trigger menuSlot={} rawSlotIndex={} item={}",
                     menu.slots.indexOf(slot), slot.index, slot.getItem());
         }
-        refreshPatternProviders();
         sendPatternManagementAction(
                 PatternManagementActionPacket.Action.QUICK_INSERT_FIRST_PROVIDER,
                 quickInsertTargetProviderId(),
@@ -5509,18 +5774,22 @@ public class WirelessComprehensiveWorkTerminalScreen extends CraftingTermScreen<
                 && isMouseOverPatternManagement(mouseX, mouseY)
                 && patternManagementScrollbar.onMouseWheel(
                         new Point((int) Math.round(mouseX - leftPos), (int) Math.round(mouseY - topPos)), scrollY)) {
+            patternProviderSlotLayoutDirty = true;
+            panelSlotActivityDirty = true;
             return true;
         }
         if (scrollY != 0 && curiosScrollbar != null && curiosScrollbar.isVisible()
                 && isMouseOverCuriosPanel(mouseX, mouseY)
                 && curiosScrollbar.onMouseWheel(
                         new Point((int) Math.round(mouseX - leftPos), (int) Math.round(mouseY - topPos)), scrollY)) {
+            panelSlotActivityDirty = true;
             return true;
         }
         if (scrollY != 0 && toolkitScrollbar != null && toolkitScrollbar.isVisible()
                 && isMouseOverToolkitPanel(mouseX, mouseY)
                 && toolkitScrollbar.onMouseWheel(
                         new Point((int) Math.round(mouseX - leftPos), (int) Math.round(mouseY - topPos)), scrollY)) {
+            panelSlotActivityDirty = true;
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
