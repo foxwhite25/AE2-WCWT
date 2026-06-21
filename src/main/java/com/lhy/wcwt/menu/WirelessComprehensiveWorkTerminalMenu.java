@@ -216,6 +216,15 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
     private long cachedUploadProvidersTick = Long.MIN_VALUE;
     @Nullable
     private List<PatternContainer> cachedUploadProviders;
+    /**
+     * 上一次推送给客户端的样板供应器内容签名。
+     * 订阅期间原本每 20 tick 雷打不动全量推一次，无论内容是否变化——这会在网络线程上重复序列化
+     * 上千个带 NBT 的样板 ItemStack（profiler 中 MapCodec.encode 占 ~20%）。
+     * 改为：先算一个轻量签名（遍历供应器槽做哈希，不拷贝/不序列化），与上次相同就整包跳过，
+     * 内容变化时才构建并即时推送。客户端可见数据与刷新及时性完全不变，纯去掉重复推送的浪费。
+     * {@link Long#MIN_VALUE} 表示「本会话尚未推送过」，用于保证订阅后至少推一次。
+     */
+    private long lastSyncedProviderSignature = Long.MIN_VALUE;
     private boolean initializingMenu = true;
     private final ManualSmithingMenuBridge manualSmithingBridge;
     private final ManualAnvilMenuBridge manualAnvilBridge;
@@ -1655,9 +1664,14 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
             boolean shouldSyncProviders = shouldSyncPatternProviders(serverPlayer);
             if (shouldSyncProviders && patternProviderSyncCooldown <= 0) {
                 long stageStartNs = DEBUG_PERF ? System.nanoTime() : 0L;
-                PacketDistributor.sendToPlayer(serverPlayer, PatternProviderListPacket.buildForPlayer(serverPlayer));
+                // 内容签名去重：内容未变则跳过整包构建 + 序列化 + 发送，消除每秒重复推送上千样板的浪费。
+                long signature = computePatternProviderSignature();
+                if (signature != lastSyncedProviderSignature) {
+                    PacketDistributor.sendToPlayer(serverPlayer, PatternProviderListPacket.buildForPlayer(serverPlayer));
+                    lastSyncedProviderSignature = signature;
+                    didProviderSync = true;
+                }
                 patternProviderSyncCooldown = PATTERN_PROVIDER_SYNC_INTERVAL_TICKS;
-                didProviderSync = true;
                 if (DEBUG_PERF) {
                     providerSyncNs = System.nanoTime() - stageStartNs;
                 }
@@ -1777,6 +1791,39 @@ public class WirelessComprehensiveWorkTerminalMenu extends CraftingTermMenu impl
 
     private boolean shouldSyncPatternProviders(ServerPlayer serverPlayer) {
         return serverPlayer.serverLevel().getGameTime() <= patternProviderSyncSubscriptionUntilTick;
+    }
+
+    /**
+     * 计算当前样板供应器内容的轻量签名，用于推送去重。
+     * 只遍历供应器与其槽位做整数哈希，不拷贝、不序列化 ItemStack——比构建整包便宜几个数量级。
+     * 捕获的变化维度：供应器集合（providerId + size）、每个非空槽的（槽号 + 物品 + 数量 + 数据组件）。
+     * 组件哈希覆盖样板 NBT 变化，因此样板被编辑/替换也会反映为签名变化。
+     */
+    private long computePatternProviderSignature() {
+        var providers = listUploadProviders(false);
+        long hash = 1469598103934665603L; // FNV-like 起始值
+        hash = hash * 1099511628211L + providers.size();
+        for (int p = 0; p < providers.size(); p++) {
+            var provider = providers.get(p);
+            InternalInventory inv = provider.getTerminalPatternInventory();
+            if (inv == null) {
+                hash = hash * 1099511628211L + 17L;
+                continue;
+            }
+            hash = hash * 1099511628211L + inv.size();
+            for (int i = 0; i < inv.size(); i++) {
+                var stack = inv.getStackInSlot(i);
+                if (stack.isEmpty()) {
+                    continue;
+                }
+                hash = hash * 1099511628211L + i;
+                hash = hash * 1099511628211L + stack.getCount();
+                // ItemStack.hashItemAndComponents 是 MC 为「物品+组件(含 NBT)」提供的规范哈希，
+                // AE2 的 AEItemKey 也用它，比 getComponents().hashCode() 更稳定可靠。
+                hash = hash * 1099511628211L + ItemStack.hashItemAndComponents(stack);
+            }
+        }
+        return hash;
     }
 
     private static boolean isValidEncodingModeOrdinal(int ordinal) {
