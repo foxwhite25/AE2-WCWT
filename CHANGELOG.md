@@ -41,10 +41,12 @@
 16. Fixed the favorited item icon being offset by 1px.
 17. Fixed inaccurate focusing after uploading patterns.
 18. Fixed the quantum bridge card tooltip not showing compatibility with the comprehensive work terminal.
+19. Fixed JEI recipe transfer into the pattern encoding area replacing item variants with the same item ID but different data components/NBT, such as Productive Bees bee spawn eggs.
 
 #### Improvements
 
 1. Improved click interaction feel for slots in the pattern management provider list.
+2. Added local runtime dependencies for Draconic Evolution and Productive Bees compatibility testing.
 
 ### 中文
 
@@ -85,10 +87,12 @@
 16. 修复收藏物品图标偏移1px的问题；
 17. 修复上传样板时无法精准聚焦到上传样板位置的问题；
 18. 修复量子桥卡tooltip不显示可用于综合工作终端的问题；
+19. 修复从JEI将配方拉取到样板编码区时，带数据组件/NBT的同ID物品变体可能被替换成其它变体的问题，例如Productive Bees不同蜂种刷怪蛋；
 
 #### 优化
 
 1. 优化样板管理区供应器列表槽位点击交互体验。
+2. 新增用于Draconic Evolution和Productive Bees兼容性测试的本地运行时依赖。
 
 ## v1.2.1
 

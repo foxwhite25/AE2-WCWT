@@ -361,13 +361,16 @@ public class WcwtRecipeTransferHandler
                 .toList();
 
         if (!itemCandidates.isEmpty()) {
-            ItemStack best = WcwtIngredientPriorities.chooseBestItemForEncoding(priorityContext,
-                    Ingredient.of(itemCandidates.stream().map(ItemStack::copy)), itemCandidates);
-            if (!best.isEmpty()) {
-                ItemStack encoded = preserveDisplayedItemCounts
-                        ? copyWithDisplayedItemCount(itemCandidates, best)
-                        : best.copyWithCount(1);
-                return GenericStack.fromItemStack(encoded);
+            List<GenericStack> itemStacks = itemCandidates.stream()
+                    .map(GenericStack::fromItemStack)
+                    .filter(Objects::nonNull)
+                    .toList();
+            GenericStack selected = WcwtIngredientPriorities.chooseBestGenericStackForEncoding(priorityContext,
+                    itemStacks);
+            if (selected != null) {
+                return preserveDisplayedItemCounts
+                        ? withDisplayedItemCount(slotView, selected)
+                        : new GenericStack(selected.what(), 1);
             }
         }
 
@@ -390,15 +393,6 @@ public class WcwtRecipeTransferHandler
             }
         }
         return selected;
-    }
-
-    private static ItemStack copyWithDisplayedItemCount(List<ItemStack> displayedCandidates, ItemStack selected) {
-        for (ItemStack displayed : displayedCandidates) {
-            if (!displayed.isEmpty() && ItemStack.isSameItemSameComponents(displayed, selected)) {
-                return displayed.copy();
-            }
-        }
-        return selected.copy();
     }
 
     private static WcwtIngredientPriorities.PriorityContext createPriorityContext(WirelessComprehensiveWorkTerminalMenu menu) {
