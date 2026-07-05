@@ -15,6 +15,7 @@
 10. Fixed a dedicated-server disconnect when putting an encoded pattern back into the pattern encoding output slot by updating derived pattern UI slots before broadcasting container contents.
 11. Added OP-only `/wcwt config` commands for reading and changing the WCWT server options `toolkitSlotCount` and `patternProviderActiveRefresh`.
 12. Added mirrored item and fluid substitution toggles under the manual crafting area's Store Items and Take Items buttons while using crafting pattern mode.
+13. Implemented the manual crafting substitution toggles: repeated crafts can switch to another valid JEI/EMI item candidate when the current ingredient runs out, and fluid substitution can refill returned containers from ME fluids, such as refilling empty buckets from stored water.
 
 ### 中文
 1. 将工具包记忆槽位按钮的位置与状态样式对齐到 1.20.1 版本，支持关闭、悬停、开启三种状态，其中悬停与开启使用相同样式。
@@ -29,6 +30,7 @@
 10. 修复专用服务器环境下，将已编码样板放回样板编码区默认输出槽时，容器内容包编码失败并断开连接的问题；现在会先更新样板相关派生 UI 槽，再广播容器内容。
 11. 新增仅 OP 可用的 `/wcwt config` 指令，用于读取和修改 WCWT 服务端选项 `toolkitSlotCount` 与 `patternProviderActiveRefresh`。
 12. 在手动合成区工作台模式下，将物品替换与流体替换按钮镜像到放入物品、取走物品按钮下方，并复用样板编码区的同一开关状态。
+13. 实现手动合成区替换按钮的实际功能：连续合成时当前材料用完后可切换到 JEI/EMI 配方中的其它有效物品候选；流体替换可用 ME 网络流体重新填充返还容器，例如用网络里的水把空桶接回水桶。
 
 ## v1.3.1
 

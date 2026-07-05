@@ -619,7 +619,9 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
                     wideIngredient, visibleAlternatives, priorityContext.favoritePriorities());
             if (!favorited.isEmpty()) {
                 int count = Math.max(1, (int) Math.min(Integer.MAX_VALUE, ingredient.getAmount()));
-                return new RequestedIngredient(List.of(favorited), count, slotIndex);
+                return new RequestedIngredient(
+                        orderAlternativesWithPreferredFirst(priorityContext, favorited, visibleAlternatives),
+                        count, slotIndex);
             }
         }
         if (WcwtClientConfig.preferJeiBookmarksForPatternEncoding() && priorityContext.hasBookmarkPriorities()) {
@@ -627,7 +629,9 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
                     wideIngredient, visibleAlternatives, priorityContext.bookmarkPriorities());
             if (!bookmarked.isEmpty()) {
                 int count = Math.max(1, (int) Math.min(Integer.MAX_VALUE, ingredient.getAmount()));
-                return new RequestedIngredient(List.of(bookmarked), count, slotIndex);
+                return new RequestedIngredient(
+                        orderAlternativesWithPreferredFirst(priorityContext, bookmarked, visibleAlternatives),
+                        count, slotIndex);
             }
         }
         ItemStack best = WcwtIngredientPriorities.chooseBestItemForEncoding(priorityContext, wideIngredient,
@@ -636,7 +640,8 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
             return null;
         }
         int count = Math.max(1, (int) Math.min(Integer.MAX_VALUE, ingredient.getAmount()));
-        return new RequestedIngredient(List.of(best), count, slotIndex);
+        return new RequestedIngredient(orderAlternativesWithPreferredFirst(priorityContext, best, visibleAlternatives),
+                count, slotIndex);
     }
 
     private static Map<Integer, SlotWidget> getOrderedCraftingInputSlots(Map<Integer, SlotWidget> inputSlots) {
@@ -783,6 +788,22 @@ public class WcwtEmiRecipeHandler implements EmiRecipeHandler<WirelessComprehens
             }
         }
         return false;
+    }
+
+    private static List<ItemStack> orderAlternativesWithPreferredFirst(
+            WcwtIngredientPriorities.PriorityContext priorityContext,
+            ItemStack preferred,
+            List<ItemStack> alternatives) {
+        List<ItemStack> ordered = new ArrayList<>();
+        if (!preferred.isEmpty()) {
+            ordered.add(preferred.copy());
+        }
+        for (ItemStack alternative : WcwtIngredientPriorities.sortItemAlternatives(priorityContext, alternatives)) {
+            if (!containsEquivalentStack(ordered, alternative)) {
+                ordered.add(alternative.copy());
+            }
+        }
+        return ordered;
     }
 
     @Nullable

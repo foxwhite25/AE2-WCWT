@@ -79,6 +79,9 @@ public final class WcwtTerminalPullService {
         var targetMode = WirelessComprehensiveWorkTerminalMenu.ManualWorkspaceMode
                 .fromOrdinal(payload.manualWorkspaceMode());
         if (targetMode == WirelessComprehensiveWorkTerminalMenu.ManualWorkspaceMode.CRAFTING) {
+            menu.rememberManualCraftingAlternatives(requestedIngredients);
+        }
+        if (targetMode == WirelessComprehensiveWorkTerminalMenu.ManualWorkspaceMode.CRAFTING) {
             menu.moveManualWorkspaceToNetwork(targetMode);
         }
         InternalInventory craftingGrid = getPullTargetInventory(menu, targetMode);

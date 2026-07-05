@@ -286,7 +286,7 @@ public final class WcwtPullRecipeTransfer {
         if (best.isEmpty()) {
             best = WcwtIngredientPriorities.chooseBestItem(priorityContext, ingredient, visibleAlternatives);
         }
-        return best.isEmpty() ? List.of() : List.of(best);
+        return orderAlternativesWithPreferredFirst(priorityContext, best, visibleAlternatives);
     }
 
     private static List<ItemStack> getAlternativeStacks(IRecipeSlotView slotView) {
@@ -325,6 +325,22 @@ public final class WcwtPullRecipeTransfer {
             }
         }
         return false;
+    }
+
+    private static List<ItemStack> orderAlternativesWithPreferredFirst(
+            WcwtIngredientPriorities.PriorityContext priorityContext,
+            ItemStack preferred,
+            List<ItemStack> alternatives) {
+        List<ItemStack> ordered = new ArrayList<>();
+        if (!preferred.isEmpty()) {
+            ordered.add(preferred.copy());
+        }
+        for (ItemStack alternative : WcwtIngredientPriorities.sortItemAlternatives(priorityContext, alternatives)) {
+            if (!containsEquivalentStack(ordered, alternative)) {
+                ordered.add(alternative.copy());
+            }
+        }
+        return ordered;
     }
 
     private static Map<appeng.api.stacks.AEKey, Integer> getWcwtFavoritePriorities() {
